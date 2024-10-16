@@ -13,7 +13,7 @@ typedef void *lcu_tpool_t;
  *
  * @param num_threads The number of threads to create
  * 
- * @return A tpool_t object on success, NULL on error
+ * @return A tpool_t handle on success, NULL on error
  */
 lcu_tpool_t lcu_tpool_create(size_t num_threads);
 size_t lcu_tpool_get_total_size(lcu_tpool_t handle);

@@ -27,3 +27,6 @@ install: $(BUILD_DIR)/$(TARGET_LIB)
 uninstall:
 	rm -rf $(INSTALL_LIB)/$(TARGET_LIB)
 	rm -rf $(INSTALL_INCLUDE)
+
+docs:
+	doxygen Doxyfile
