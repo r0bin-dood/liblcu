@@ -1,0 +1,14 @@
+#ifndef LCU_H
+#define LCU_H
+
+typedef int bool;
+#define false (0)
+#define true  (!false)
+
+#define stringify(x) #x
+
+#define UNUSED(x) ((void)(x))
+
+typedef void (*lcu_generic_callback)(void *);
+
+#endif // LCU_H

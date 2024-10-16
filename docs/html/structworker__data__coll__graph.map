@@ -1,0 +1,10 @@
+<map id="worker_data" name="worker_data">
+<area shape="rect" id="Node000001" title=" " alt="" coords="32,181,134,207"/>
+<area shape="rect" id="Node000002" href="$structtpool.html" title=" " alt="" coords="14,93,69,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="55,130,67,156,79,180,74,182,62,159,50,133"/>
+<area shape="rect" id="Node000003" href="$structsync.html" title=" " alt="" coords="58,5,110,31"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="46,31,26,41,11,56,8,65,11,74,27,91,23,95,7,77,3,65,6,53,23,36,44,26"/>
+<area shape="rect" id="Node000004" href="$structworker.html" title=" " alt="" coords="111,93,178,119"/>
+<area shape="poly" id="edge4_Node000004_Node000003" title=" " alt="" coords="120,37,136,53,144,73,147,93,141,93,139,75,131,56,117,41"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="130,132,94,182,89,179,126,129"/>
+</map>
