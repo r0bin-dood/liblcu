@@ -15,6 +15,9 @@ int main(void)
     CU_pSuite logger_suite = CU_add_suite("lcu_logger", NULL, NULL);
     add_logger_tests(logger_suite);
 
+    CU_pSuite file_suite = CU_add_suite("lcu_file", NULL, NULL);
+    add_file_tests(file_suite);
+
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();
     CU_cleanup_registry();

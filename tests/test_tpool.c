@@ -13,7 +13,7 @@ typedef struct w_data {
     void *w_data;
 } w_data_t;
 
-void test_worker(void *arg)
+static void test_worker(void *arg)
 {
     w_data_t *w_data = (w_data_t *)arg;
 
@@ -116,7 +116,7 @@ void test_tpool_do_work(void)
     ret = lcu_tpool_do_work(tp, &test_worker, NULL);
     CU_ASSERT(ret == -1);
 
-    // Began waking and joining back workers
+    // Begin waking and joining back workers
     for (int i = 0; i < NUM_THREADS; i++)
     {
         lcu_sync_signal(&w_data[i].w_sync);

@@ -142,6 +142,8 @@ void *lcu_list_peek_front(lcu_list_t handle)
     list_t *list = (list_t *)handle;
     if (list == NULL)
         return NULL;
+    if (list->head == NULL)
+        return NULL;
     return (list->head->value);
 }
 
@@ -150,6 +152,8 @@ void *lcu_list_peek_back(lcu_list_t handle)
     list_t *list = (list_t *)handle;
     if (list == NULL)
         return NULL;
+    if (list->tail == NULL)
+        return NULL;
     return (list->tail->value);
 }
 
@@ -157,6 +161,8 @@ void *lcu_list_peek_at_i(lcu_list_t handle, int i)
 {
     list_t *list = (list_t *)handle;
     if (list == NULL)
+        return NULL;
+    if (list->size == 0)
         return NULL;
 
     if (i == 0)

@@ -46,6 +46,8 @@ int lcu_logger_create(const char *out)
         return -1;
     }
 
+    logger_running = true;
+    
     int ret = pthread_create(&tid, NULL, &lcu_helper_logger_func, NULL);
     if (ret != 0)
     {
@@ -102,7 +104,8 @@ void lcu_logger_print(const char *fmt, ...)
     }
     
     pthread_mutex_lock(&str_fifo_mutex);
-    lcu_fifo_push(str_fifo, (void *)buf);
+    if (str_fifo != NULL)
+        lcu_fifo_push(str_fifo, (void *)buf);
     pthread_mutex_unlock(&str_fifo_mutex);
 
     pthread_mutex_lock(&print_mutex);
@@ -127,12 +130,17 @@ void lcu_logger_destroy()
     lcu_fifo_destroy(&str_fifo);
     pthread_mutex_unlock(&str_fifo_mutex);
 
-    fclose(fd);
-    fd = NULL;
+    if (fd != NULL)
+    {
+        fclose(fd);
+        fd = NULL;
+    }
 }
 
 void *lcu_helper_logger_func(void *arg)
 {
+    UNUSED(arg);
+    
     struct timespec tm;
     tm.tv_sec = 0;
     tm.tv_nsec = 50000000; // 50 ms
@@ -148,16 +156,16 @@ void *lcu_helper_logger_func(void *arg)
                 continue;
         }
 
-        pthread_mutex_lock(&str_fifo_mutex);
         char *str = (char *) lcu_fifo_peek(str_fifo);
         if (str != NULL)
         {
             size_t size = strlen(str);
             fwrite(str, sizeof(char), size, fd);
             fflush(fd);
+            pthread_mutex_lock(&str_fifo_mutex);
             lcu_fifo_pop(str_fifo);
+            pthread_mutex_unlock(&str_fifo_mutex);
         }
-        pthread_mutex_unlock(&str_fifo_mutex);
     }
 
     return NULL;
