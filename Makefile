@@ -23,6 +23,7 @@ examples: $(BUILD_DIR)/$(EXAMPLE_EXEC)
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -rf $(TEST_DIR)/out/*
 
 install: $(BUILD_DIR)/$(TARGET_LIB)
 	mkdir -p $(INSTALL_LIB)
@@ -39,3 +40,6 @@ docs:
 
 tests: $(BUILD_DIR)/$(TEST_EXEC) $(BUILD_DIR)/$(MOCK_LIB)
 	LD_PRELOAD=./$(BUILD_DIR)/$(MOCK_LIB) ./$(BUILD_DIR)/$(TEST_EXEC)
+
+clean_tests:
+	rm -rf $(TEST_DIR)/out/*

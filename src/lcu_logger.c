@@ -13,6 +13,8 @@
 #define LCU_BUF_SIZE_DEFAULT 128
 #define LCU_BUF_SIZE_INCREASE 32
 
+static bool logger_running = true;
+
 static pthread_t tid;
 static FILE *fd;
 static lcu_fifo_t str_fifo;
@@ -25,6 +27,9 @@ static void lcu_helper_str_cleanup(void *buf);
 
 int lcu_logger_create(const char *out)
 {
+    if (out == NULL)
+        return -1;
+
     str_fifo = lcu_fifo_create(&lcu_helper_str_cleanup);
     if (str_fifo == NULL)
         return -1;
@@ -54,6 +59,9 @@ int lcu_logger_create(const char *out)
 
 void lcu_logger_print(const char *fmt, ...)
 {
+    if (fmt == NULL)
+        return;
+
     int n;
     int size = LCU_BUF_SIZE_DEFAULT;
     char *buf;
@@ -104,10 +112,15 @@ void lcu_logger_print(const char *fmt, ...)
 
 void lcu_logger_destroy()
 {
-    while (lcu_fifo_get_size(str_fifo) != 0)
-        usleep(50000);
+    if (str_fifo == NULL)
+        return;
 
-    pthread_cancel(tid);
+    logger_running = false;
+
+    pthread_mutex_lock(&print_mutex);
+    pthread_cond_signal(&print_cond);
+    pthread_mutex_unlock(&print_mutex);
+
     pthread_join(tid, NULL);
 
     pthread_mutex_lock(&str_fifo_mutex);
@@ -115,6 +128,7 @@ void lcu_logger_destroy()
     pthread_mutex_unlock(&str_fifo_mutex);
 
     fclose(fd);
+    fd = NULL;
 }
 
 void *lcu_helper_logger_func(void *arg)
@@ -123,28 +137,26 @@ void *lcu_helper_logger_func(void *arg)
     tm.tv_sec = 0;
     tm.tv_nsec = 50000000; // 50 ms
 
-    while (true)
+    while (logger_running || lcu_fifo_get_size(str_fifo) > 0)
     {
         pthread_mutex_lock(&print_mutex);
         int ret = pthread_cond_timedwait(&print_cond, &print_mutex, &tm);
+        pthread_mutex_unlock(&print_mutex);
         if (ret == ETIMEDOUT)
         {
             if (lcu_fifo_get_size(str_fifo) == 0)
-            {
-                pthread_mutex_unlock(&print_mutex);
                 continue;
-            }
         }
-        pthread_mutex_unlock(&print_mutex);
-
-        char *str = (char *) lcu_fifo_peek(str_fifo);
-        size_t size = strlen(str);
-        
-        fwrite(str, sizeof(char), size, fd);
-        fflush(fd);
 
         pthread_mutex_lock(&str_fifo_mutex);
-        lcu_fifo_pop(str_fifo);
+        char *str = (char *) lcu_fifo_peek(str_fifo);
+        if (str != NULL)
+        {
+            size_t size = strlen(str);
+            fwrite(str, sizeof(char), size, fd);
+            fflush(fd);
+            lcu_fifo_pop(str_fifo);
+        }
         pthread_mutex_unlock(&str_fifo_mutex);
     }
 
@@ -153,5 +165,6 @@ void *lcu_helper_logger_func(void *arg)
 
 void lcu_helper_str_cleanup(void *buf)
 {
-    free(buf);
+    if (buf != NULL)
+        free(buf);
 }

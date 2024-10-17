@@ -29,6 +29,9 @@ static void lcu_helper_worker_cleanup(void *arg);
 
 lcu_tpool_t lcu_tpool_create(size_t num_threads)
 {
+    if (num_threads == 0)
+        return NULL;
+
     tpool_t *tpool = (tpool_t *) malloc(sizeof(tpool_t));
     if (tpool == NULL)
         return NULL;
@@ -93,12 +96,16 @@ lcu_tpool_t lcu_tpool_create(size_t num_threads)
 size_t lcu_tpool_get_total_size(lcu_tpool_t handle)
 {
     tpool_t *tpool = (tpool_t *)handle;
+    if (tpool == NULL)
+        return 0;
     return tpool->num_threads;
 }
 
 size_t lcu_tpool_get_available_size(lcu_tpool_t handle)
 {
     tpool_t *tpool = (tpool_t *)handle;
+    if (tpool == NULL)
+        return 0;
     return lcu_fifo_get_size(tpool->worker_fifo);
 }
 
@@ -111,6 +118,11 @@ void lcu_tpool_grow(lcu_tpool_t handle, size_t num_threads)
 int lcu_tpool_do_work(lcu_tpool_t handle, lcu_generic_callback func, void *args)
 {
     tpool_t *tpool = (tpool_t *)handle;
+    if (tpool == NULL)
+        return -1;
+
+    if (func == NULL)
+        return -1;
 
     if (lcu_tpool_get_available_size(tpool) == 0)
         return -1;
@@ -130,6 +142,10 @@ int lcu_tpool_do_work(lcu_tpool_t handle, lcu_generic_callback func, void *args)
 void lcu_tpool_destroy(lcu_tpool_t *handle)
 {
     tpool_t **tpool = (tpool_t **)handle;
+    if (tpool == NULL)
+        return;
+    if (*tpool == NULL)
+        return;
 
     for (size_t i = 0; i < (*tpool)->num_threads; i++)
     {

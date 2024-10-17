@@ -159,12 +159,9 @@ void *lcu_list_peek_at_i(lcu_list_t handle, int i)
     if (list == NULL)
         return NULL;
 
-    if (i >= (int)list->size)
-        return NULL;
-
     if (i == 0)
         return lcu_list_peek_front(handle);
-    if (i < 0 || i == (int)(list->size - 1))
+    if (i < 0 || i >= (int)(list->size))
         return lcu_list_peek_back(handle);
 
     list_item_t *temp = lcu_helper_get_list_item(list, i);
@@ -178,6 +175,9 @@ int lcu_list_remove_front(lcu_list_t handle)
 {
     list_t *list = (list_t *)handle;
     if (list == NULL)
+        return -1;
+
+    if (list->size == 0)
         return -1;
 
     list_item_t *temp = list->head;
@@ -213,6 +213,9 @@ int lcu_list_remove_back(lcu_list_t handle)
     if (list == NULL)
         return -1;
 
+    if (list->size == 0)
+        return -1;
+
     list_item_t *temp = list->tail;
 
     temp->size = 0;
@@ -246,12 +249,12 @@ int lcu_list_remove_at_i(lcu_list_t handle, int i)
     if (list == NULL)
         return -1;
 
-    if (i >= (int)list->size)
-        return -2;
+    if (list->size == 0)
+        return -1;
 
     if (i == 0)
         return lcu_list_remove_front(handle);
-    if (i < 0 || i == (int)(list->size - 1))
+    if (i < 0 || i >= (int)(list->size))
         return lcu_list_remove_back(handle);
 
     list_item_t *temp = lcu_helper_get_list_item(list, i);
@@ -279,7 +282,10 @@ int lcu_list_remove_at_i(lcu_list_t handle, int i)
 void lcu_list_destroy(lcu_list_t *handle)
 {
     list_t **list = (list_t **)handle;
-
+    if (list == NULL)
+        return;
+    if (*list == NULL)
+        return;
     size_t list_size = (*list)->size;
     for (size_t i = 0; i < list_size; i++)
         lcu_list_remove_back(*handle);
