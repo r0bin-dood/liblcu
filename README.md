@@ -83,3 +83,9 @@ You can find examples in the examples/ directory. While there are currently only
 ---
 
 Feel free to explore the library and contribute! 
+
+## Tests
+
+To build and run the tests, use:
+
+`make tests`

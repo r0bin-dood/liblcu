@@ -9,7 +9,10 @@ $(BUILD_DIR)/$(TARGET_LIB): $(OBJECT_FILES)
 	ar rcs $@ $^
 
 $(BUILD_DIR)/$(EXAMPLE_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(EXAMPLE_SOURCE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(EXAMPLE_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(DEBUG_FLAGS) $(CPPFLAGS) $(EXAMPLE_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -o $@ $(LDFLAGS)
+
+$(BUILD_DIR)/$(TEST_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(TEST_SOURCE)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(TEST_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -lcunit -o $@ $(LDFLAGS)
 
 all: $(BUILD_DIR)/$(TARGET_LIB) $(BUILD_DIR)/$(EXAMPLE_EXEC)
 
@@ -30,3 +33,7 @@ uninstall:
 
 docs:
 	doxygen Doxyfile
+
+tests: $(BUILD_DIR)/$(TEST_EXEC)
+	gcc -fPIC -shared -o build/libmockmalloc.so tests/mock/mockmalloc.c -ldl
+	LD_PRELOAD=./build/libmockmalloc.so ./$(BUILD_DIR)/$(TEST_EXEC)
