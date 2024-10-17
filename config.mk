@@ -30,3 +30,8 @@ TEST_EXEC := test_exec
 
 TEST_SOURCE := $(shell find $(TEST_DIR) -name '*.c')
 TEST_OBJECT := $(patsubst $(TEST_DIR)/%.c, $(BUILD_DIR)/%.o, $(TEST_SOURCE))
+
+MOCK_DIR := $(TEST_DIR)/mock
+MOCK_LIB := libmock.so
+
+MOCK_SOURCE := $(shell find $(MOCK_DIR) -name '*.c')

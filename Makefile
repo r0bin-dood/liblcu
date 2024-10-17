@@ -14,6 +14,9 @@ $(BUILD_DIR)/$(EXAMPLE_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(EXAMPLE_SOURCE)
 $(BUILD_DIR)/$(TEST_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(TEST_SOURCE)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(TEST_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -lcunit -o $@ $(LDFLAGS)
 
+$(BUILD_DIR)/$(MOCK_LIB): $(MOCK_SOURCE)
+	$(CC) -fPIC -shared -o $@ $< -ldl
+
 all: $(BUILD_DIR)/$(TARGET_LIB) $(BUILD_DIR)/$(EXAMPLE_EXEC)
 
 examples: $(BUILD_DIR)/$(EXAMPLE_EXEC) 
@@ -34,6 +37,5 @@ uninstall:
 docs:
 	doxygen Doxyfile
 
-tests: $(BUILD_DIR)/$(TEST_EXEC)
-	gcc -fPIC -shared -o build/libmockmalloc.so tests/mock/mockmalloc.c -ldl
-	LD_PRELOAD=./build/libmockmalloc.so ./$(BUILD_DIR)/$(TEST_EXEC)
+tests: $(BUILD_DIR)/$(TEST_EXEC) $(BUILD_DIR)/$(MOCK_LIB)
+	LD_PRELOAD=./$(BUILD_DIR)/$(MOCK_LIB) ./$(BUILD_DIR)/$(TEST_EXEC)
