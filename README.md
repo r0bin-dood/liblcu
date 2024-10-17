@@ -86,6 +86,12 @@ Feel free to explore the library and contribute!
 
 ## Tests
 
+I'm using CUnit to write tests for the library. You need to have CUnit installed in your system to run the tests. In order to simulate some failures, I'm overwriting some standard library functions with my own, then using LD_PRELOAD to inject them in.
+
 To build and run the tests, use:
 
 `make tests`
+
+To clean the test stuff (both executables and data), use:
+
+`make clean_tests`

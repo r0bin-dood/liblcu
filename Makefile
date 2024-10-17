@@ -43,3 +43,4 @@ tests: $(BUILD_DIR)/$(TEST_EXEC) $(BUILD_DIR)/$(MOCK_LIB)
 
 clean_tests:
 	rm -rf $(TEST_DIR)/out/*
+	rm -rf $(BUILD_DIR)/$(MOCK_LIB) $(BUILD_DIR)/$(TEST_EXEC)
