@@ -4,7 +4,6 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
-# Rule to build the static library
 $(BUILD_DIR)/$(TARGET_LIB): $(OBJECT_FILES)
 	ar rcs $@ $^
 

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include "lcu_list.h"
 
+#define LIST(x) ((list_t *)x)
+
 /**
  * \internal
  * This struct is used internally.
@@ -24,153 +26,134 @@ typedef struct list {
     lcu_generic_callback cleanup_func;
 } list_t;
 
-static list_item_t *lcu_helper_new_list_item(void *value);
-static list_item_t *lcu_helper_get_list_item(list_t *handle, int i);
+static inline list_item_t *new_list_item(void *value);
+static inline list_item_t *get_list_item(list_t *handle, int i);
+static inline void update_node_ptrs(list_item_t *node, list_item_t *prev, list_item_t *next);
+static int list_remove(bool from_back, list_t *handle);
 
 lcu_list_t lcu_list_create(lcu_generic_callback cleanup_func)
 {
-    list_t *handle = malloc(sizeof(list_t));
-    if (handle == NULL)
-        return NULL;
-    handle->size = 0;
-    handle->head = NULL;
-    handle->tail = NULL;
-    handle->cleanup_func = cleanup_func;
+    list_t *handle = calloc(1, sizeof(list_t));
+    if (handle != NULL)
+        handle->cleanup_func = cleanup_func;
 
-    return ((lcu_list_t)handle);
+    return handle;
 }
 
 size_t lcu_list_get_size(lcu_list_t handle)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL)
         return 0;
-    return list->size;
+    return LIST(handle)->size;
 }
 
 int lcu_list_insert_front(lcu_list_t handle, void *value)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL)
         return -1;
 
-    list_item_t *temp = lcu_helper_new_list_item(value);
+    list_item_t *temp = new_list_item(value);
     if (temp == NULL)
         return -1;
 
-    if (list->size == 0)
+    if (LIST(handle)->size == 0)
     {
-        temp->next = NULL;
-        temp->prev = NULL;
-        list->tail = temp;
+        update_node_ptrs(temp, NULL, NULL);
+        LIST(handle)->tail = temp;
     }
     else
     {
-        temp->next = list->head;
-        temp->prev = NULL;
-        list->head->prev = temp;
+        update_node_ptrs(temp, NULL, LIST(handle)->head);
+        LIST(handle)->head->prev = temp;
     }
-    list->head = temp;
-    list->size++;
+    LIST(handle)->head = temp;
+    LIST(handle)->size++;
 
     return 0;
 }
 
 int lcu_list_insert_back(lcu_list_t handle, void *value)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL)
         return -1;
 
-    list_item_t *temp = lcu_helper_new_list_item(value);
+    list_item_t *temp = new_list_item(value);
     if (temp == NULL)
         return -1;
 
-    if (list->size == 0)
+    if (LIST(handle)->size == 0)
     {
-        temp->next = NULL;
-        temp->prev = NULL;
-        list->head = temp;
+        update_node_ptrs(temp, NULL, NULL);
+        LIST(handle)->head = temp;
     }
     else
     {
-        temp->next = NULL;
-        temp->prev = list->tail;
-        list->tail->next = temp;
+        update_node_ptrs(temp, LIST(handle)->tail, NULL);
+        LIST(handle)->tail->next = temp;
     }
-    list->tail = temp;
-    list->size++;
+    LIST(handle)->tail = temp;
+    LIST(handle)->size++;
 
     return 0;
 }
 
 int lcu_list_insert_at_i(lcu_list_t handle, int i, void *value)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL)
         return -1;
 
     if (i == 0)
         return lcu_list_insert_front(handle, value);
-    if (i < 0 || i >= (int)(list->size))
+    if (i < 0 || i >= (int)(LIST(handle)->size))
         return lcu_list_insert_back(handle, value);
 
-    list_item_t *temp = lcu_helper_get_list_item(list, i);
-    if (temp == NULL)
+    list_item_t *i_next = get_list_item(LIST(handle), i);
+    if (i_next == NULL)
         return -1;
 
-    list_item_t *i_next = temp;
-    list_item_t *i_prev = temp->prev;
-
-    temp = NULL;
-    temp = lcu_helper_new_list_item(value);
-    if (temp == NULL)
+    list_item_t *new_item = new_list_item(value);
+    if (new_item == NULL)
         return -1;
 
-    i_next->prev = temp;
-    i_prev->next = temp;
-    temp->next = i_next;
-    temp->prev = i_prev;
+    list_item_t *i_prev = i_next->prev;
+    i_next->prev = new_item;
+    i_prev->next = new_item;
+    new_item->next = i_next;
+    new_item->prev = i_prev;
 
-    list->size++;
+    LIST(handle)->size++;
 
     return 0;
 }
 
 void *lcu_list_peek_front(lcu_list_t handle)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL ||
+        LIST(handle)->head == NULL)
         return NULL;
-    if (list->head == NULL)
-        return NULL;
-    return (list->head->value);
+    return (LIST(handle)->head->value);
 }
 
 void *lcu_list_peek_back(lcu_list_t handle)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
+    if (LIST(handle) == NULL ||
+        LIST(handle)->tail == NULL)
         return NULL;
-    if (list->tail == NULL)
-        return NULL;
-    return (list->tail->value);
+    return (LIST(handle)->tail->value);
 }
 
 void *lcu_list_peek_at_i(lcu_list_t handle, int i)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
-        return NULL;
-    if (list->size == 0)
+    if (LIST(handle) == NULL ||
+        LIST(handle)->size == 0)
         return NULL;
 
     if (i == 0)
         return lcu_list_peek_front(handle);
-    if (i < 0 || i >= (int)(list->size))
+    if (i < 0 || i >= (int)(LIST(handle)->size))
         return lcu_list_peek_back(handle);
 
-    list_item_t *temp = lcu_helper_get_list_item(list, i);
+    list_item_t *temp = get_list_item(LIST(handle), i);
     if (temp == NULL)
         return NULL;
 
@@ -179,148 +162,114 @@ void *lcu_list_peek_at_i(lcu_list_t handle, int i)
 
 int lcu_list_remove_front(lcu_list_t handle)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
-        return -1;
-
-    if (list->size == 0)
-        return -1;
-
-    list_item_t *temp = list->head;
-
-    temp->size = 0;
-    if (list->cleanup_func != NULL)
-        (*list->cleanup_func)(temp->value);
-    temp->value = NULL;
-
-    if (list->size == 1)
-    {
-        free(temp);
-        list->head = NULL;
-        list->tail = NULL;
-    }
-    else
-    {
-        temp = temp->next;
-        temp->prev->next = NULL;
-        free(temp->prev);
-        temp->prev = NULL;
-
-        list->head = temp;
-    }
-    list->size--;
-
-    return 0;
+    return list_remove(false, handle);
 }
 
 int lcu_list_remove_back(lcu_list_t handle)
 {    
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
-        return -1;
-
-    if (list->size == 0)
-        return -1;
-
-    list_item_t *temp = list->tail;
-
-    temp->size = 0;
-    if (list->cleanup_func != NULL)
-        (*list->cleanup_func)(temp->value);
-    temp->value = NULL;
-
-    if (list->size == 1)
-    {
-        free(temp);
-        list->head = NULL;
-        list->tail = NULL;
-    }
-    else
-    {
-        temp = temp->prev;
-        temp->next->prev = NULL;
-        free(temp->next);
-        temp->next = NULL;
-
-        list->tail = temp;
-    }
-    list->size--;
-
-    return 0;
+    return list_remove(true, handle);
 }
 
 int lcu_list_remove_at_i(lcu_list_t handle, int i)
 {
-    list_t *list = (list_t *)handle;
-    if (list == NULL)
-        return -1;
-
-    if (list->size == 0)
+    if (LIST(handle) == NULL || 
+        LIST(handle)->size == 0)
         return -1;
 
     if (i == 0)
         return lcu_list_remove_front(handle);
-    if (i < 0 || i >= (int)(list->size))
+    if (i < 0 || i >= (int)(LIST(handle)->size))
         return lcu_list_remove_back(handle);
 
-    list_item_t *temp = lcu_helper_get_list_item(list, i);
+    list_item_t *temp = get_list_item(LIST(handle), i);
     if (temp == NULL)
         return -1;
 
-    temp->size = 0;
-    if (list->cleanup_func != NULL)
-        (*list->cleanup_func)(temp->value);
-    temp->value = NULL;
+    if (LIST(handle)->cleanup_func != NULL)
+        (*LIST(handle)->cleanup_func)(temp->value);
 
-    list_item_t *i_next = temp->next;
-    list_item_t *i_prev = temp->prev;
-    i_next->prev = i_prev;
-    i_prev->next = i_next;
+    temp->prev->next = temp->next;
+    temp->next->prev = temp->prev;
 
     free(temp);
-    temp = NULL;
-
-    list->size--;
+    LIST(handle)->size--;
 
     return 0;
 }
 
 void lcu_list_destroy(lcu_list_t *handle)
 {
-    list_t **list = (list_t **)handle;
-    if (list == NULL)
+    if (handle == NULL || 
+        *handle == NULL)
         return;
-    if (*list == NULL)
-        return;
-    size_t list_size = (*list)->size;
-    for (size_t i = 0; i < list_size; i++)
-        lcu_list_remove_back(*handle);
 
-    free(*handle);
+    list_t *list = (list_t *)*handle;
+    size_t list_size = list->size;
+    for (size_t i = 0; i < list_size; i++)
+        lcu_list_remove_back(list);
+
+    free(list);
     *handle = NULL;
 }
 
-list_item_t *lcu_helper_new_list_item(void *value)
+list_item_t *new_list_item(void *value)
 {
-    list_item_t *temp = (list_item_t *) malloc(sizeof(list_item_t));
-    if (temp == NULL)
-        return NULL;
-
-    temp->value = value;
+    list_item_t *temp = calloc(1, sizeof(list_item_t));
+    if (temp != NULL)
+        temp->value = value;
 
     return temp;
 }
 
-list_item_t *lcu_helper_get_list_item(list_t *handle, int i)
+list_item_t *get_list_item(list_t *handle, int i)
 {
+    if (i < 0 || i >= handle->size)
+        return NULL;
+
     list_item_t *temp = handle->head;
-
-    for (int j = 0; j < (int) handle->size; j++)
-    {
-        if (j == i)
-            return temp;
+    while (i--)
         temp = temp->next;
-    }
 
-    return NULL;
+    return temp;
+}
+
+int list_remove(bool from_back, list_t *handle)
+{
+    if (handle == NULL || 
+        handle->size == 0)
+        return -1;
+
+    list_item_t *temp = from_back ? handle->tail : handle->head;
+
+    if (handle->cleanup_func != NULL)
+        (*handle->cleanup_func)(temp->value);
+
+    if (handle->size == 1)
+    {
+        handle->head = NULL;
+        handle->tail = NULL;
+    }
+    else
+    {
+        if (from_back)
+        {
+            handle->tail = temp->prev;
+            handle->tail->next = NULL;
+        }
+        else
+        {
+            handle->head = temp->next;
+            handle->head->prev = NULL;
+        }
+    }
+    free(temp);
+    handle->size--;
+
+    return 0;
+}
+
+void update_node_ptrs(list_item_t *node, list_item_t *prev, list_item_t *next)
+{
+    node->prev = prev;
+    node->next = next;
 }
