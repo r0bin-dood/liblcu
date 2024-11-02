@@ -31,7 +31,7 @@ int main(int argc, const char **argv)
     
     example_tpool();
 
-    lcu_logger_print("Ctrl + C to end program\n\n");
+    lcu_logger_print("Ctrl + C to exit\n\n");
     lcu_sync_wait(&exit_sync);
 
     lcu_logger_destroy();

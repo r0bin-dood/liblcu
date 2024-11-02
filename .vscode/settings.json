@@ -1,5 +1,12 @@
 {
     "files.associations": {
-        "lcu_list.h": "c"
+        "lcu_list.h": "c",
+        "list": "c",
+        "array": "c",
+        "deque": "c",
+        "vector": "c",
+        "string_view": "c",
+        "span": "c",
+        "format": "c"
     }
 }
