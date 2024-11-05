@@ -38,7 +38,7 @@ lcu_tpool_t lcu_tpool_create(size_t num_threads)
     
     lcu_sync_create(&tpool->worker_fifo_mutex);
     
-    tpool->worker_fifo = lcu_fifo_create(NULL);
+    tpool->worker_fifo = lcu_fifo_create();
     if (tpool->worker_fifo == NULL)
         goto error;
 
@@ -77,7 +77,7 @@ lcu_tpool_t lcu_tpool_create(size_t num_threads)
         }
         tpool->worker_id_arr[i] = worker->worker_id;
 
-        lcu_fifo_push(tpool->worker_fifo, (void *)worker);
+        lcu_fifo_push(tpool->worker_fifo, (void *)worker, NULL);
     }
 
     return tpool;
@@ -192,7 +192,7 @@ void *lcu_helper_worker_func(void *arg)
         worker->work_func_args = NULL;
 
         lcu_sync_lock(&tpool->worker_fifo_mutex);
-        lcu_fifo_push(tpool->worker_fifo, (void *)worker);
+        lcu_fifo_push(tpool->worker_fifo, (void *)worker, NULL);
         lcu_sync_unlock(&tpool->worker_fifo_mutex);
     }
 

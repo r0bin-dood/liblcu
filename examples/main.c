@@ -29,7 +29,7 @@ int main(int argc, const char **argv)
 
     example_linked_list();
     
-    example_tpool();
+    //example_tpool();
 
     lcu_logger_print("Ctrl + C to exit\n\n");
     lcu_sync_wait(&exit_sync);

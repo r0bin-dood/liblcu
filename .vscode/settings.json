@@ -7,6 +7,8 @@
         "vector": "c",
         "string_view": "c",
         "span": "c",
-        "format": "c"
+        "format": "c",
+        "initializer_list": "c",
+        "variant": "c"
     }
 }

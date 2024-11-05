@@ -30,7 +30,7 @@ int lcu_logger_create(const char *out)
     if (out == NULL)
         return -1;
 
-    str_fifo = lcu_fifo_create(&lcu_helper_str_cleanup);
+    str_fifo = lcu_fifo_create();
     if (str_fifo == NULL)
         return -1;
 
@@ -105,7 +105,7 @@ void lcu_logger_print(const char *fmt, ...)
     
     pthread_mutex_lock(&str_fifo_mutex);
     if (str_fifo != NULL)
-        lcu_fifo_push(str_fifo, (void *)buf);
+        lcu_fifo_push(str_fifo, (void *)buf, &lcu_helper_str_cleanup);
     pthread_mutex_unlock(&str_fifo_mutex);
 
     pthread_mutex_lock(&print_mutex);
