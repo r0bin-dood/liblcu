@@ -1,2 +1,4 @@
 build/
 .vscode/
+tests/out/
+*.c

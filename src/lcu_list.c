@@ -1,7 +1,32 @@
 #include <stdlib.h>
+#include <stdatomic.h>
 #include "lcu_list.h"
 
 #define LIST(x) ((list_t *)x)
+
+#define NODE_AT_OFFSET(node, offset) (*(list_node_t **)((char *)(node) + (offset)))
+
+#define ATOMIC_SPINLOCK(flag, block) do {                                       \
+    while (atomic_flag_test_and_set_explicit(&(flag), memory_order_acquire)){}  \
+    block;                                                                      \
+    atomic_flag_clear_explicit(&(flag), memory_order_release);                  \
+} while(0)
+
+//64 256 1024 4096 16384 65536 262144 1048576
+#define ENUM_CACHE_LEVELS \
+    X(0) \
+    X(1) \
+    X(2) \
+    X(3) \
+    X(4) \
+    X(5) \
+    X(6) \
+    X(7)
+#define X(n) CACHE_LEVEL_##n = (1 << (2 * (n + 3))),
+enum {
+    ENUM_CACHE_LEVELS
+    CACHE_LEVELS_MAX = 8,
+};
 
 /**
  * \internal
@@ -14,14 +39,20 @@ typedef struct list_node {
     struct list_node *next;
 } list_node_t;
 
+typedef struct list_fat_node {
+    int index;
+    list_node_t *node;
+} list_fat_node_t;
+
 /**
  * \internal
  * This struct is used internally.
  */
-typedef struct list_cache {
-    int index;
-    list_node_t *node;
-} list_cache_t;
+typedef struct skip {
+    list_node_t *anchor;
+    struct skip *next;
+    struct skip *prev;
+} skip_t;
 
 /**
  * \internal
@@ -29,8 +60,9 @@ typedef struct list_cache {
  */
 typedef struct list {
     size_t size;
-    list_cache_t cursor;
-    list_cache_t *anchor;
+    atomic_flag flag;
+    skip_t *skip_list[CACHE_LEVELS_MAX];
+    list_fat_node_t cursor;
     list_node_t *head;
     list_node_t *tail; 
 } list_t;
@@ -41,8 +73,12 @@ static inline void update_cursor(list_t *handle, int index, list_node_t *node);
 static inline void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next);
 
 lcu_list_t lcu_list_create()
-{    
-    return lcu_zalloc(sizeof(list_t));
+{
+    list_t *list = lcu_zalloc(sizeof(list_t));
+    if (list != NULL) {
+        atomic_flag_clear(&list->flag);
+    }
+    return list;
 }
 
 size_t lcu_list_get_size(lcu_list_t handle)
@@ -63,18 +99,19 @@ int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback c
     if (new_node == NULL)
         return -1;
 
-    if (list->size == 0) {
-        update_node_ptrs(new_node, NULL, NULL);
-        list->tail = new_node;
-        update_cursor(list, 0, new_node);
-    } else {
-        update_node_ptrs(new_node, NULL, list->head);
-        list->head->prev = new_node;
-        if (list->cursor.node)
+    ATOMIC_SPINLOCK(list->flag, {
+        if (list->size == 0) {
+            update_node_ptrs(new_node, NULL, NULL);
+            list->tail = new_node;
+            update_cursor(list, 0, new_node);
+        } else {
+            update_node_ptrs(new_node, NULL, list->head);
+            list->head->prev = new_node;
             list->cursor.index++;
-    }
-    list->head = new_node;
-    list->size++;
+        }
+        list->head = new_node;
+        list->size++;
+    });
 
     return 0;
 }
@@ -90,16 +127,18 @@ int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cl
     if (new_node == NULL)
         return -1;
 
-    if (list->size == 0) {
-        update_node_ptrs(new_node, NULL, NULL);
-        list->head = new_node;
-        update_cursor(list, 0, new_node);
-    } else {
-        update_node_ptrs(new_node, list->tail, NULL);
-        list->tail->next = new_node;
-    }
-    list->tail = new_node;
-    list->size++;
+    ATOMIC_SPINLOCK(list->flag, {
+        if (list->size == 0) {
+            update_node_ptrs(new_node, NULL, NULL);
+            list->head = new_node;
+            update_cursor(list, 0, new_node);
+        } else {
+            update_node_ptrs(new_node, list->tail, NULL);
+            list->tail->next = new_node;
+        }
+        list->tail = new_node;
+        list->size++;
+    });
 
     return 0;
 }
@@ -109,135 +148,156 @@ int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback 
     if (handle == NULL)
         return -1;
 
+    if (i < 0 || i > LIST(handle)->size)
+        return -1;
+
     list_t *list = LIST(handle);
 
     if (i == 0)
         return lcu_list_insert_front(list, value, cleanup_func);
-    if (i == list->size - 1)
+    if (i == list->size)
         return lcu_list_insert_back(list, value, cleanup_func);
 
-    int cursor_index = list->cursor.index;
-
-    list_node_t *i_next = get_list_node(list, i);
-    if (i_next == NULL)
-        return -1;
+    list_node_t *old_node = NULL;
+    ATOMIC_SPINLOCK(list->flag, {
+        old_node = get_list_node(list, i);
+    });
 
     list_node_t *new_node = new_list_node(value, cleanup_func);
     if (new_node == NULL)
         return -1;
 
-    list_node_t *i_prev = i_next->prev;
-    i_next->prev = new_node;
-    i_prev->next = new_node;
-    update_node_ptrs(new_node, i_prev, i_next);
-
-    if (i <= cursor_index)
+    ATOMIC_SPINLOCK(list->flag, {
+        update_node_ptrs(new_node, old_node->prev, old_node);
+        old_node->prev->next = new_node;
+        old_node->prev = new_node;
         list->cursor.index++;
 
-    list->size++;
+        list->size++;
+    });
 
     return 0;
 }
 
 void *lcu_list_peek_front(lcu_list_t handle)
 {
-    if (handle == NULL)
-        return NULL;
-    return (LIST(handle)->head == NULL ? NULL : LIST(handle)->head->value);
+    if (handle != NULL && LIST(handle)->head != NULL)
+        return LIST(handle)->head->value;
+    return NULL;
 }
 
 void *lcu_list_peek_back(lcu_list_t handle)
 {
-    if (handle == NULL)
-        return NULL;
-    return (LIST(handle)->tail == NULL ? NULL : LIST(handle)->tail->value);
+    if (handle != NULL && LIST(handle)->tail != NULL)
+        return LIST(handle)->tail->value;
+    return NULL;
 }
 
 void *lcu_list_peek(lcu_list_t handle, int i)
 {
-    if (LIST(handle) == NULL ||
-        LIST(handle)->size == 0)
-        return NULL;
-
     list_t *list = LIST(handle);
+
+    if (list == NULL || list->size == 0)
+        return NULL;
+    
+    const size_t list_size = list->size;
+
+    if (i < 0 || i >= list_size)
+        return NULL;
 
     if (i == 0)
         return lcu_list_peek_front(list);
-    if (i == list->size - 1)
+    if (i == list_size - 1)
         return lcu_list_peek_back(list);
 
-    list_node_t *list_node = get_list_node(list, i);
-    if (list_node == NULL)
-        return NULL;
+    list_node_t *node;
+    ATOMIC_SPINLOCK(list->flag, {
+        node = get_list_node(list, i);
+    });
 
-    return list_node->value;
+    return node->value;
 }
 
 int lcu_list_move_to_front(lcu_list_t handle, int i)
 {
-    if (handle == NULL)
+    if (LIST(handle) == NULL ||
+        LIST(handle)->size == 0)
+        return -1;
+
+    if (i < 0 || i >= LIST(handle)->size)
         return -1;
 
     if (i == 0)
         return 0;
 
     list_t *list = LIST(handle);
-    list_node_t *node;
 
-    if (i == list->size - 1) {
-        node = list->tail;
-        node->prev->next = NULL;
-        list->tail = node->prev;
-    } else {
-        node = get_list_node(list, i);
-        if (node == NULL)
-            return -1;
-        node->prev->next = node->next;
-        node->next->prev = node->prev;
-    }
-    update_cursor(list, i, node->prev);
-    node->prev = NULL;
-    node->next = list->head;
-    list->head->prev = node;
-    list->head = node;
+    list_node_t *node;
+    ATOMIC_SPINLOCK(list->flag, {
+        if (i == list->size - 1) {
+            node = list->tail;
+            list->tail->prev->next = NULL;
+            list->tail = list->tail->prev;
+        } else {
+            node = get_list_node(list, i);
+            node->prev->next = node->next;
+            node->next->prev = node->prev;
+        }
+        update_cursor(list, i, node->prev);
+        node->prev = NULL;
+        node->next = list->head;
+        list->head->prev = node;
+        list->head = node;
+    });
 
     return 0;
 }
 
 int lcu_list_move_to_back(lcu_list_t handle, int i)
 {
-    if (handle == NULL)
+    if (LIST(handle) == NULL ||
+        LIST(handle)->size == 0)
+        return -1;
+
+    if (i < 0 || i >= LIST(handle)->size)
         return -1;
 
     if (i == LIST(handle)->size - 1)
         return 0;
     
     list_t *list = LIST(handle);
+
     list_node_t *node;
-    
-    if (i == 0) {
-        node = list->head;
-        node->next->prev = NULL;
-        list->head = node->next;
-    } else {
-        node = get_list_node(list, i);
-        if (node == NULL)
-            return -1;
-        node->prev->next = node->next;
-        node->next->prev = node->prev;
-    }
-    update_cursor(list, i, node->next);
-    node->next = NULL;
-    node->prev = list->tail;
-    list->tail->next = node;
-    list->tail = node;
+    ATOMIC_SPINLOCK(list->flag, {
+        if (i == 0) {
+            node = list->head;
+            list->head->next->prev = NULL;
+            list->head = list->head->next;
+        } else {
+            node = get_list_node(list, i);
+            node->prev->next = node->next;
+            node->next->prev = node->prev;
+        }
+        update_cursor(list, i, node->next);
+        node->next = NULL;
+        node->prev = list->tail;
+        list->tail->next = node;
+        list->tail = node;
+    });
 
     return 0;
 }
 
 int lcu_list_move(lcu_list_t handle, int from, int to)
 {
-    if (handle == NULL)
+    list_t *list = LIST(handle);
+
+    if (list == NULL ||
+        list->size == 0)
+        return -1;
+
+    if ((from < 0 || from >= list->size) ||
+        (to < 0 || to >= list->size))
         return -1;
 
     if (from == to)
@@ -245,40 +305,49 @@ int lcu_list_move(lcu_list_t handle, int from, int to)
 
     if (to == 0)
         return lcu_list_move_to_front(handle, from);
-    if (to == LIST(handle)->size - 1)
+    if (to == list->size - 1)
         return lcu_list_move_to_back(handle, from);
 
-    list_t *list = LIST(handle);
     list_node_t *node;
+    list_node_t *dst_node;
 
-    if (from == 0) {
-        node = list->head;
-        node->next->prev = NULL;
-        list->head = node->next;
-    } else if (from == list->size - 1) {
-        node = list->tail;
-        node->prev->next = NULL;
-        list->tail = node->prev;
-    } else {
-        node = get_list_node(list, from);
-        if (node == NULL)
-            return -1;
-        node->prev->next = node->next;
-        node->next->prev = node->prev;
-    }
-    list_node_t *dst_node = get_list_node(list, to);
-    if (dst_node == NULL)
-        return -1;
-
-    if (from > to)
-        update_cursor(list, from, node->prev);
-    else
-        update_cursor(list, from, node->next);
-
-    node->next = dst_node;
-    node->prev = dst_node->prev;
-    dst_node->prev->next = node;
-    dst_node->prev = node;
+    ATOMIC_SPINLOCK(list->flag, {
+        if (from == 0) {
+            node = list->head;
+            list->head = list->head->next;
+            list->head->prev = NULL;
+        } else if (from == list->size - 1) {
+            node = list->tail;
+            list->tail = list->tail->prev;
+            list->tail->next = NULL;
+        } else {
+            node = get_list_node(list, from);
+            node->prev->next = node->next;
+            node->next->prev = node->prev;
+        }
+        if (abs(from - to) == 1) {
+            if (from < to) {
+                dst_node = node->next;
+                node->prev = dst_node;
+                node->next = dst_node->next;
+                dst_node->next->prev = node;
+                dst_node->next = node;
+            } else {
+                dst_node = node->prev;
+                node->next = dst_node;
+                node->prev = dst_node->prev;
+                dst_node->prev->next = node;
+                dst_node->prev = node;
+            }
+        } else {
+            dst_node = get_list_node(list, to);
+            node->next = dst_node;
+            node->prev = dst_node->prev;
+            dst_node->prev->next = node;
+            dst_node->prev = node;
+        }
+        update_cursor(list, to, node);
+    });
     
     return 0;
 }
@@ -312,25 +381,28 @@ int lcu_list_remove_front(lcu_list_t handle)
 
     list_t *list = LIST(handle);
 
-    list_node_t *list_node = list->head;
+    list_node_t *node;
+    ATOMIC_SPINLOCK(list->flag, {
+        node = list->head;
 
-    if (list->cursor.node == list_node)
-        update_cursor(list, 0, list_node->next);
-    else if (list->cursor.index > 0)
-        list->cursor.index--;
+        if (list->cursor.node == node)
+            update_cursor(list, 0, node->next);
+        else if (list->cursor.index > 0)
+            list->cursor.index--;
 
-    if (list_node->cleanup_func != NULL)
-        (*list_node->cleanup_func)(list_node->value);
+        if (list->size == 1) {
+            list->head = NULL;
+            list->tail = NULL;
+        } else {
+            list->head = node->next;
+            list->head->prev = NULL;
+        }
+        list->size--;
+    });
 
-    if (list->size == 1) {
-        list->head = NULL;
-        list->tail = NULL;
-    } else {
-        list->head = list_node->next;
-        list->head->prev = NULL;
-    }
-    lcu_free(list_node);
-    list->size--;
+    if (node->cleanup_func != NULL)
+        (*node->cleanup_func)(node->value);
+    lcu_free(node);
 
     return 0;
 }
@@ -343,24 +415,26 @@ int lcu_list_remove_back(lcu_list_t handle)
 
     list_t *list = LIST(handle);
 
-    list_node_t *list_node = list->tail;
+    list_node_t *node;
+    ATOMIC_SPINLOCK(list->flag, {
+        node = list->tail;
 
-    if (list->cursor.node == list_node)
-        update_cursor(list, list->cursor.index - 1, list_node->prev);
+        if (list->cursor.node == node)
+            update_cursor(list, list->cursor.index - 1, node->prev);
 
-    if (list_node->cleanup_func != NULL)
-        (*list_node->cleanup_func)(list_node->value);
+        if (list->size == 1) {
+            list->head = NULL;
+            list->tail = NULL;
+        } else {
+            list->tail = node->prev;
+            list->tail->next = NULL;
+        }
+        list->size--;
+    });
 
-    if (list->size == 1) {
-        list->head = NULL;
-        list->tail = NULL;
-    } else {
-        list->tail = list_node->prev;
-        list->tail->next = NULL;
-
-    }
-    lcu_free(list_node);
-    list->size--;
+    if (node->cleanup_func != NULL)
+        (*node->cleanup_func)(node->value);
+    lcu_free(node);
 
     return 0;
 }
@@ -371,28 +445,28 @@ int lcu_list_remove(lcu_list_t handle, int i)
         LIST(handle)->size == 0)
         return -1;
 
-    if (i == 0)
-        return lcu_list_remove_front(handle);
-    if (i == LIST(handle)->size - 1)
-        return lcu_list_remove_back(handle);
-
-    list_node_t *list_node = get_list_node(LIST(handle), i);
-    if (list_node == NULL)
+    if (i < 0 || i > LIST(handle)->size)
         return -1;
 
-    if (list_node->cleanup_func != NULL)
-        (*list_node->cleanup_func)(list_node->value);
+    if (i == 0)
+        return lcu_list_remove_front(handle);
+    if (i == LIST(handle)->size)
+        return lcu_list_remove_back(handle);
 
-    list_node->prev->next = list_node->next;
-    list_node->next->prev = list_node->prev;
+    list_t *list = LIST(handle);
 
-    if (list_node->next)
-        update_cursor(handle, i + 1, list_node->next);
-    else
-        update_cursor(handle, i - 1, list_node->prev);
-
-    lcu_free(list_node);
-    LIST(handle)->size--;
+    list_node_t *node;
+    ATOMIC_SPINLOCK(list->flag, {
+        node = get_list_node(list, i);
+        update_cursor(list, i + 1, node->next);
+        node->prev->next = node->next;
+        node->next->prev = node->prev;
+        list->size--;
+    });
+    
+    if (node->cleanup_func != NULL)
+        (*node->cleanup_func)(node->value);
+    lcu_free(node);
 
     return 0;
 }
@@ -407,7 +481,7 @@ void lcu_list_destroy(lcu_list_t *handle)
     size_t list_size = list->size;
     for (size_t i = 0; i < list_size; i++)
         lcu_list_remove_back(list);
-
+    
     lcu_free(list);
     *handle = NULL;
 }
@@ -424,47 +498,32 @@ list_node_t *new_list_node(void *value, lcu_generic_callback cleanup_func)
 
 list_node_t *get_list_node(list_t *handle, int i)
 {
-    if (i < 0 || i >= handle->size)
-        return NULL;
-
-    list_node_t *node = NULL;
-    int current_index = 0;
-    if (handle->cursor.node != NULL && 
-        abs(handle->cursor.index - i) < i && 
-        abs(handle->cursor.index - i) < (handle->size - i)) {
-        
+    list_node_t *node;
+    int current_index;
+    const int list_size = handle->size;
+    const int distance_to_cursor = abs(handle->cursor.index - i);
+    if (i < (list_size >> 1)) {
+        node = handle->head;
+        current_index = 0;
+    } else if (distance_to_cursor <= (list_size >> 2)) {
         node = handle->cursor.node;
         current_index = handle->cursor.index;
-
-        if (i > current_index) {
-            while (current_index < i) {
-                node = node->next;
-                current_index++;
-            }
-        } else {
-            while (current_index > i) {
-                node = node->prev;
-                current_index--;
-            }
+    } else {
+        node = handle->tail;
+        current_index = list_size - 1;
+    }
+    if (current_index < i) {
+        while (current_index < i) {
+            node = node->next;
+            current_index++;
         }
     } else {
-        if (i < handle->size / 2) {
-            node = handle->head;
-            current_index = 0;
-            while (current_index < i) {
-                node = node->next;
-                current_index++;
-            }
-        } else {
-            node = handle->tail;
-            current_index = handle->size - 1;
-            while (current_index > i) {
-                node = node->prev;
-                current_index--;
-            }
+        while (current_index > i) {
+            node = node->prev;
+            current_index--;
         }
     }
-    update_cursor(handle, current_index, node);
+    update_cursor(handle, i, node);
     return node;
 }
 

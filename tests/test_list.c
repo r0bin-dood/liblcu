@@ -140,7 +140,7 @@ void test_list_insert_back(void)
     CU_ASSERT(ll == NULL);
 }
 
-void test_list_insert_at_i(void)
+void test_list_insert(void)
 {
     lcu_list_t ll = NULL;
     CU_ASSERT(ll == NULL);
@@ -172,7 +172,7 @@ void test_list_insert_at_i(void)
 
     // Inserting at the back
     int val2 = 9999;
-    ret = lcu_list_insert(ll, lcu_list_get_size(ll) - 1, &val2, NULL);
+    ret = lcu_list_insert(ll, lcu_list_get_size(ll), &val2, NULL);
     CU_ASSERT(ret == 0);
     CU_ASSERT(val2 == *((int *)lcu_list_peek_back(ll)));
 
@@ -203,6 +203,175 @@ void test_list_insert_at_i(void)
 
     lcu_list_destroy(&ll);
     CU_ASSERT(ll == NULL);
+}
+
+void test_list_move_to_front(void)
+{
+    lcu_list_t ll = NULL;
+    CU_ASSERT(ll == NULL);
+    ll = lcu_list_create();
+    CU_ASSERT(ll != NULL);
+
+    int val[32] = {1111, 2222, 3333, 4444};
+
+    // move on empty list should fail
+    int ret = lcu_list_move(ll, 0, 1);
+    CU_ASSERT(ret == -1);
+
+    // Insert value
+    for (int i = 0; i < 4; i++) {
+        ret = lcu_list_insert(ll, i, &val[i], NULL);
+        CU_ASSERT(ret == 0);
+        CU_ASSERT(val[i] == *((int *)lcu_list_peek(ll, i)));
+    }
+
+    // NULL handle should fail
+    ret = lcu_list_move_to_front(NULL, 1);
+    CU_ASSERT(ret == -1);
+
+    // Negative should fail
+    ret = lcu_list_move_to_front(ll, -1);
+    CU_ASSERT(ret == -1);
+
+    // out of bounds should fail
+    ret = lcu_list_move_to_front(ll, 43);
+    CU_ASSERT(ret == -1);
+
+    // No effect
+    ret = lcu_list_move_to_front(ll, 0);
+    CU_ASSERT(ret == 0);
+
+    ret = lcu_list_move_to_front(ll, 1);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[1] == *((int *)lcu_list_peek_front(ll)));
+    CU_ASSERT(val[3] == *((int *)lcu_list_peek_back(ll)));
+
+    lcu_list_destroy(&ll);
+    CU_ASSERT(ll == NULL);
+}
+
+void test_list_move_to_back(void)
+{
+    lcu_list_t ll = NULL;
+    CU_ASSERT(ll == NULL);
+    ll = lcu_list_create();
+    CU_ASSERT(ll != NULL);
+
+    int val[32] = {1111, 2222, 3333, 4444};
+
+    // move on empty list should fail
+    int ret = lcu_list_move(ll, 0, 1);
+    CU_ASSERT(ret == -1);
+
+    // Insert value
+    for (int i = 0; i < 4; i++) {
+        ret = lcu_list_insert(ll, i, &val[i], NULL);
+        CU_ASSERT(ret == 0);
+        CU_ASSERT(val[i] == *((int *)lcu_list_peek(ll, i)));
+    }
+
+    // NULL handle should fail
+    ret = lcu_list_move_to_back(NULL, 0);
+    CU_ASSERT(ret == -1);
+
+    // Negative should fail
+    ret = lcu_list_move_to_back(ll, -1);
+    CU_ASSERT(ret == -1);
+
+    // out of bounds should fail
+    ret = lcu_list_move_to_back(ll, 43);
+    CU_ASSERT(ret == -1);
+
+    // No effect
+    ret = lcu_list_move_to_back(ll, lcu_list_get_size(ll) - 1);
+    CU_ASSERT(ret == 0);
+
+    ret = lcu_list_move_to_back(ll, 0);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[1] == *((int *)lcu_list_peek_front(ll)));
+    CU_ASSERT(val[0] == *((int *)lcu_list_peek_back(ll)));
+
+    ret = lcu_list_move_to_back(ll, 1);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[3] == *((int *)lcu_list_peek(ll, 1)));
+    CU_ASSERT(val[2] == *((int *)lcu_list_peek_back(ll)));
+
+    lcu_list_destroy(&ll);
+    CU_ASSERT(ll == NULL);
+}
+
+void test_list_move(void)
+{
+    lcu_list_t ll = NULL;
+    CU_ASSERT(ll == NULL);
+    ll = lcu_list_create();
+    CU_ASSERT(ll != NULL);
+
+    int val[32] = {1111, 2222, 3333, 4444, 5555, 6666};
+
+    // move on empty list should fail
+    int ret = lcu_list_move(ll, 0, 1);
+    CU_ASSERT(ret == -1);
+
+    // Insert value
+    for (int i = 0; i < 6; i++) {
+        ret = lcu_list_insert(ll, i, &val[i], NULL);
+        CU_ASSERT(ret == 0);
+        CU_ASSERT(val[i] == *((int *)lcu_list_peek(ll, i)));
+    }
+
+    // NULL handle should fail
+    ret = lcu_list_move(NULL, 0, 2);
+    CU_ASSERT(ret == -1);
+
+    // Negative should fail
+    ret = lcu_list_move(ll, -1, 1);
+    CU_ASSERT(ret == -1);
+    ret = lcu_list_move(ll, 1, -1);
+    CU_ASSERT(ret == -1);
+
+    // out of bounds should fail
+    ret = lcu_list_move(ll, 43, 1);
+    CU_ASSERT(ret == -1);
+    ret = lcu_list_move(ll, 1, 43);
+    CU_ASSERT(ret == -1);
+
+    // No effect
+    ret = lcu_list_move(ll, 1, 1);
+    CU_ASSERT(ret == 0);
+
+    // Moving node from front to back
+    ret = lcu_list_move(ll, 0, lcu_list_get_size(ll) - 1);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[1] == *((int *)lcu_list_peek_front(ll)));
+    CU_ASSERT(val[0] == *((int *)lcu_list_peek_back(ll)));
+    // Moving node to immediately adjacent node is basically a swap operation
+    ret = lcu_list_move(ll, 1, 2);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[3] == *((int *)lcu_list_peek(ll, 1)));
+    CU_ASSERT(val[2] == *((int *)lcu_list_peek(ll, 2)));
+    ret = lcu_list_move(ll, 2, 1);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(val[2] == *((int *)lcu_list_peek(ll, 1)));
+    CU_ASSERT(val[3] == *((int *)lcu_list_peek(ll, 2)));
+
+    lcu_list_destroy(&ll);
+    CU_ASSERT(ll == NULL);
+}
+
+void test_list_swap_with_front(void)
+{
+
+}
+
+void test_list_swap_with_back(void)
+{
+
+}
+
+void test_list_swap(void)
+{
+
 }
 
 #define NUM 6
@@ -281,7 +450,7 @@ void test_list_remove_back(void)
     CU_ASSERT(ll == NULL);
 }
 
-void test_list_remove_at_i(void)
+void test_list_remove(void)
 {
     lcu_list_t ll = NULL;
     CU_ASSERT(ll == NULL);
@@ -328,13 +497,40 @@ void test_list_remove_at_i(void)
     CU_ASSERT(ll == NULL);
 }
 
+/*
+lcu_list_t lcu_list_create();
+size_t lcu_list_get_size(lcu_list_t handle);
+int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func);
+int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func);
+int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback cleanup_func);
+void *lcu_list_peek_front(lcu_list_t handle);
+void *lcu_list_peek_back(lcu_list_t handle);
+void *lcu_list_peek(lcu_list_t handle, int i);
+int lcu_list_move_to_front(lcu_list_t handle, int i);
+int lcu_list_move_to_back(lcu_list_t handle, int i);
+int lcu_list_move(lcu_list_t handle, int from, int to);
+int lcu_list_swap_with_front(lcu_list_t handle, int i);
+int lcu_list_swap_with_back(lcu_list_t handle, int i);
+int lcu_list_swap(lcu_list_t handle, int i, int j);
+int lcu_list_remove_front(lcu_list_t handle);
+int lcu_list_remove_back(lcu_list_t handle);
+int lcu_list_remove(lcu_list_t handle, int i);
+void lcu_list_destroy(lcu_list_t *handle);
+*/
+
 void add_list_tests(CU_pSuite suite)
 {
     CU_add_test(suite, "test_list_create_destroy", test_list_create_destroy);
     CU_add_test(suite, "test_list_insert_front", test_list_insert_front);
     CU_add_test(suite, "test_list_insert_back", test_list_insert_back);
-    CU_add_test(suite, "test_list_insert_at_i", test_list_insert_at_i);
+    CU_add_test(suite, "test_list_insert", test_list_insert);
+    CU_add_test(suite, "test_list_move_to_front", test_list_move_to_front);
+    CU_add_test(suite, "test_list_move_to_back", test_list_move_to_back);
+    CU_add_test(suite, "test_list_move", test_list_move);
+    CU_add_test(suite, "test_list_swap_with_front", test_list_swap_with_front);
+    CU_add_test(suite, "test_list_swap_with_back", test_list_swap_with_back);
+    CU_add_test(suite, "test_list_swap", test_list_swap);
     CU_add_test(suite, "test_list_remove_front", test_list_remove_front);
     CU_add_test(suite, "test_list_remove_back", test_list_remove_back);
-    CU_add_test(suite, "test_list_remove_at_i", test_list_remove_at_i);
+    CU_add_test(suite, "test_list_remove", test_list_remove);
 }
