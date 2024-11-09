@@ -4,15 +4,12 @@
 
 #define LIST(x) ((list_t *)x)
 
-#define NODE_AT_OFFSET(node, offset) (*(list_node_t **)((char *)(node) + (offset)))
-
 #define ATOMIC_SPINLOCK(flag, block) do {                                       \
     while (atomic_flag_test_and_set_explicit(&(flag), memory_order_acquire)){}  \
     block;                                                                      \
     atomic_flag_clear_explicit(&(flag), memory_order_release);                  \
 } while(0)
 
-//64 256 1024 4096 16384 65536 262144 1048576
 #define ENUM_CACHE_LEVELS \
     X(0) \
     X(1) \
@@ -27,6 +24,10 @@ enum {
     ENUM_CACHE_LEVELS
     CACHE_LEVELS_MAX = 8,
 };
+static const size_t cache_intervals[CACHE_LEVELS_MAX] = {
+    CACHE_LEVEL_0, CACHE_LEVEL_1, CACHE_LEVEL_2, CACHE_LEVEL_3,
+    CACHE_LEVEL_4, CACHE_LEVEL_5, CACHE_LEVEL_6, CACHE_LEVEL_7
+};
 
 /**
  * \internal
@@ -37,6 +38,8 @@ typedef struct list_node {
     lcu_generic_callback cleanup_func;
     struct list_node *prev;
     struct list_node *next;
+
+    struct list_node *skip_next[CACHE_LEVELS_MAX]; 
 } list_node_t;
 
 typedef struct list_fat_node {
@@ -48,21 +51,12 @@ typedef struct list_fat_node {
  * \internal
  * This struct is used internally.
  */
-typedef struct skip {
-    list_node_t *anchor;
-    struct skip *next;
-    struct skip *prev;
-} skip_t;
-
-/**
- * \internal
- * This struct is used internally.
- */
 typedef struct list {
     size_t size;
     atomic_flag flag;
-    skip_t *skip_list[CACHE_LEVELS_MAX];
     list_fat_node_t cursor;
+    list_node_t *skip_list[CACHE_LEVELS_MAX];
+    list_node_t *skip_tail[CACHE_LEVELS_MAX];
     list_node_t *head;
     list_node_t *tail; 
 } list_t;
@@ -71,6 +65,8 @@ static list_node_t *new_list_node(void *value, lcu_generic_callback cleanup_func
 static list_node_t *get_list_node(list_t *handle, int i);
 static inline void update_cursor(list_t *handle, int index, list_node_t *node);
 static inline void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next);
+
+static void add_skip_list(list_t *list, list_node_t *node);
 
 lcu_list_t lcu_list_create()
 {
@@ -138,6 +134,7 @@ int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cl
         }
         list->tail = new_node;
         list->size++;
+        add_skip_list(list, new_node);
     });
 
     return 0;
@@ -502,6 +499,8 @@ list_node_t *get_list_node(list_t *handle, int i)
     int current_index;
     const int list_size = handle->size;
     const int distance_to_cursor = abs(handle->cursor.index - i);
+    int steps_per_level[CACHE_LEVELS_MAX];
+
     if (i < (list_size >> 1)) {
         node = handle->head;
         current_index = 0;
@@ -512,13 +511,38 @@ list_node_t *get_list_node(list_t *handle, int i)
         node = handle->tail;
         current_index = list_size - 1;
     }
+
+    if (abs(current_index - i) >= CACHE_LEVEL_0) {
+        current_index = 0;
+        list_node_t *skip_node = NULL;
+        int target_index = i;
+        for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
+            steps_per_level[level] = target_index / cache_intervals[level];
+            target_index %= cache_intervals[level];
+            current_index += steps_per_level[level] * cache_intervals[level];
+        }
+        for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
+            int steps = steps_per_level[level];
+            if (steps == 0)
+                continue;
+            if (skip_node == NULL) {
+                skip_node = handle->skip_list[level];
+                steps--;
+            }
+            while (steps--) {
+                skip_node = skip_node->skip_next[level];
+            }
+        }
+        node = skip_node;
+    }
+
     if (current_index < i) {
-        while (current_index < i) {
+        while (current_index <= i) {
             node = node->next;
             current_index++;
         }
     } else {
-        while (current_index > i) {
+        while (current_index >= i) {
             node = node->prev;
             current_index--;
         }
@@ -537,4 +561,20 @@ void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next)
 {
     node->prev = prev;
     node->next = next;
+}
+
+void add_skip_list(list_t *list, list_node_t *node)
+{
+    const size_t list_size = list->size;
+    for (size_t level = 0; level < CACHE_LEVELS_MAX; level++) {
+        if ((list_size & (cache_intervals[level] - 1)) == 0) {
+            if (list->skip_list[level] == NULL) {
+                list->skip_list[level] = node;
+            } else {
+                list->skip_tail[level]->skip_next[level] = node;
+            }
+            list->skip_tail[level] = node;
+            node->skip_next[level] = NULL;
+        }
+    }
 }
