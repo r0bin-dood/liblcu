@@ -1,14 +1,12 @@
 #include <stdlib.h>
-#include <stdatomic.h>
 #include "lcu_list.h"
+#include "lcu_sync.h"
+#include "lcu_alloc.h"
+#include "lcu_slab_alloc.h"
+
+#define SLAB 1
 
 #define LIST(x) ((list_t *)x)
-
-#define ATOMIC_SPINLOCK(flag, block) do {                                       \
-    while (atomic_flag_test_and_set_explicit(&(flag), memory_order_acquire)){}  \
-    block;                                                                      \
-    atomic_flag_clear_explicit(&(flag), memory_order_release);                  \
-} while(0)
 
 #define ENUM_CACHE_LEVELS \
     X(0) \
@@ -55,13 +53,15 @@ typedef struct list {
     size_t size;
     atomic_flag flag;
     list_fat_node_t cursor;
+    bool invalid_skip_list;
     list_node_t *skip_list[CACHE_LEVELS_MAX];
     list_node_t *skip_tail[CACHE_LEVELS_MAX];
     list_node_t *head;
-    list_node_t *tail; 
+    list_node_t *tail;
+    lcu_slab_alloc_t allocator;
 } list_t;
 
-static list_node_t *new_list_node(void *value, lcu_generic_callback cleanup_func);
+static list_node_t *new_list_node(list_t *handle, void *value, lcu_generic_callback cleanup_func);
 static list_node_t *get_list_node(list_t *handle, int i);
 static inline void update_cursor(list_t *handle, int index, list_node_t *node);
 static inline void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next);
@@ -73,6 +73,11 @@ lcu_list_t lcu_list_create()
     list_t *list = lcu_zalloc(sizeof(list_t));
     if (list != NULL) {
         atomic_flag_clear(&list->flag);
+        list->allocator = lcu_slab_alloc_create(sizeof(list_node_t), 4096);
+        if (list->allocator == NULL) {
+            lcu_free(list);
+            list = NULL;
+        }
     }
     return list;
 }
@@ -91,7 +96,7 @@ int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback c
 
     list_t *list = LIST(handle);
 
-    list_node_t *new_node = new_list_node(value, cleanup_func);
+    list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
         return -1;
 
@@ -107,6 +112,8 @@ int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback c
         }
         list->head = new_node;
         list->size++;
+
+        list->invalid_skip_list = true;
     });
 
     return 0;
@@ -119,7 +126,7 @@ int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cl
 
     list_t *list = LIST(handle);
 
-    list_node_t *new_node = new_list_node(value, cleanup_func);
+    list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
         return -1;
 
@@ -160,7 +167,7 @@ int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback 
         old_node = get_list_node(list, i);
     });
 
-    list_node_t *new_node = new_list_node(value, cleanup_func);
+    list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
         return -1;
 
@@ -171,6 +178,8 @@ int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback 
         list->cursor.index++;
 
         list->size++;
+
+        list->invalid_skip_list = true;
     });
 
     return 0;
@@ -245,6 +254,8 @@ int lcu_list_move_to_front(lcu_list_t handle, int i)
         node->next = list->head;
         list->head->prev = node;
         list->head = node;
+
+        list->invalid_skip_list = true;
     });
 
     return 0;
@@ -280,6 +291,8 @@ int lcu_list_move_to_back(lcu_list_t handle, int i)
         node->prev = list->tail;
         list->tail->next = node;
         list->tail = node;
+
+        list->invalid_skip_list = true;
     });
 
     return 0;
@@ -344,6 +357,8 @@ int lcu_list_move(lcu_list_t handle, int from, int to)
             dst_node->prev = node;
         }
         update_cursor(list, to, node);
+
+        list->invalid_skip_list = true;
     });
     
     return 0;
@@ -395,11 +410,17 @@ int lcu_list_remove_front(lcu_list_t handle)
             list->head->prev = NULL;
         }
         list->size--;
+
+        list->invalid_skip_list = true;
     });
 
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
+    #ifdef SLAB
+    lcu_slab_free(list->allocator, node);
+    #else
     lcu_free(node);
+    #endif
 
     return 0;
 }
@@ -431,7 +452,11 @@ int lcu_list_remove_back(lcu_list_t handle)
 
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
+    #ifdef SLAB
+    lcu_slab_free(list->allocator, node);
+    #else
     lcu_free(node);
+    #endif
 
     return 0;
 }
@@ -459,11 +484,17 @@ int lcu_list_remove(lcu_list_t handle, int i)
         node->prev->next = node->next;
         node->next->prev = node->prev;
         list->size--;
+
+        list->invalid_skip_list = true;
     });
     
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
+    #ifdef SLAB
+    lcu_slab_free(list->allocator, node);
+    #else
     lcu_free(node);
+    #endif
 
     return 0;
 }
@@ -479,13 +510,19 @@ void lcu_list_destroy(lcu_list_t *handle)
     for (size_t i = 0; i < list_size; i++)
         lcu_list_remove_back(list);
     
+    lcu_slab_alloc_destroy(&list->allocator);
+
     lcu_free(list);
     *handle = NULL;
 }
 
-list_node_t *new_list_node(void *value, lcu_generic_callback cleanup_func)
+list_node_t *new_list_node(list_t *list, void *value, lcu_generic_callback cleanup_func)
 {
-    list_node_t *new_node = lcu_zalloc(sizeof(list_node_t));
+    #ifdef SLAB
+    list_node_t *new_node = lcu_slab_alloc(list->allocator);
+    #else
+    list_node_t *new_node = lcu_alloc(sizeof(list_node_t));
+    #endif
     if (new_node != NULL) {
         new_node->value = value;
         new_node->cleanup_func = cleanup_func;
@@ -512,28 +549,30 @@ list_node_t *get_list_node(list_t *handle, int i)
         current_index = list_size - 1;
     }
 
-    if (abs(current_index - i) >= CACHE_LEVEL_0) {
-        current_index = 0;
-        list_node_t *skip_node = NULL;
-        int target_index = i;
-        for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
-            steps_per_level[level] = target_index / cache_intervals[level];
-            target_index %= cache_intervals[level];
-            current_index += steps_per_level[level] * cache_intervals[level];
-        }
-        for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
-            int steps = steps_per_level[level];
-            if (steps == 0)
-                continue;
-            if (skip_node == NULL) {
-                skip_node = handle->skip_list[level];
-                steps--;
+    if (handle->invalid_skip_list != true) {
+        if (abs(current_index - i) >= CACHE_LEVEL_0) {
+            current_index = 0;
+            list_node_t *skip_node = NULL;
+            int target_index = i;
+            for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
+                steps_per_level[level] = target_index / cache_intervals[level];
+                target_index %= cache_intervals[level];
+                current_index += steps_per_level[level] * cache_intervals[level];
             }
-            while (steps--) {
-                skip_node = skip_node->skip_next[level];
+            for (int level = CACHE_LEVELS_MAX - 1; level >= 0; level--) {
+                int steps = steps_per_level[level];
+                if (steps == 0)
+                    continue;
+                if (skip_node == NULL) {
+                    skip_node = handle->skip_list[level];
+                    steps--;
+                }
+                while (steps--) {
+                    skip_node = skip_node->skip_next[level];
+                }
             }
+            node = skip_node;
         }
-        node = skip_node;
     }
 
     if (current_index < i) {

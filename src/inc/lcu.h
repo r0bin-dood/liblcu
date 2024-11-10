@@ -1,6 +1,7 @@
 #ifndef LCU_H
 #define LCU_H
 
+#include <stddef.h>
 #include "lcu_alloc.h"
 
 typedef int bool;

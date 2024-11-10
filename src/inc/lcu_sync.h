@@ -1,8 +1,15 @@
 #ifndef LCU_SYNC_H
 #define LCU_SYNC_H
 
+#include <stdatomic.h>
 #include <pthread.h>
 #include "lcu.h"
+
+#define ATOMIC_SPINLOCK(flag, block) do {                                       \
+    while (atomic_flag_test_and_set_explicit(&(flag), memory_order_acquire)){}  \
+    block;                                                                      \
+    atomic_flag_clear_explicit(&(flag), memory_order_release);                  \
+} while(0)
 
 typedef struct sync {
     bool cond_var;
