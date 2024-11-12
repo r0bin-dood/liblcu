@@ -6,7 +6,7 @@
 
 typedef void * lcu_list_t;
 
-lcu_list_t lcu_list_create();
+lcu_list_t lcu_list_create(size_t max_hint);
 size_t lcu_list_get_size(lcu_list_t handle);
 int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func);
 int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func);

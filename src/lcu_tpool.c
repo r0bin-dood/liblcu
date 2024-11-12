@@ -38,7 +38,7 @@ lcu_tpool_t lcu_tpool_create(size_t num_threads)
     
     lcu_sync_create(&tpool->worker_fifo_mutex);
     
-    tpool->worker_fifo = lcu_fifo_create();
+    tpool->worker_fifo = lcu_fifo_create(num_threads);
     if (tpool->worker_fifo == NULL)
         goto error;
 

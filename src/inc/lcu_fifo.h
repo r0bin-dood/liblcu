@@ -6,7 +6,7 @@
 
 typedef void * lcu_fifo_t;
 
-lcu_fifo_t lcu_fifo_create();
+lcu_fifo_t lcu_fifo_create(size_t max_hint);
 size_t lcu_fifo_get_size(lcu_fifo_t handle);
 int lcu_fifo_push(lcu_fifo_t handle, void *value, lcu_generic_callback cleanup_func);
 void *lcu_fifo_peek(lcu_fifo_t handle);

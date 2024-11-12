@@ -2,11 +2,14 @@
 #include "lcu_sync.h"
 #include "lcu_alloc.h"
 #include "lcu_slab_alloc.h"
+#include <stdio.h>
+
+static const size_t METADATA_SIZE = sizeof(void *) + 1;
 
 #define ALLOC_MEMORY_MARK 0xDE
 
-#define CHUNK_DATA(chunk)       (void *)((uint8_t *)(chunk) + (sizeof(void *) + 1))
-#define CHUNK_METADATA(chunk)   (void *)((uint8_t *)(chunk) - (sizeof(void *) + 1))
+#define CHUNK_DATA(chunk)       (void *)((uint8_t *)(chunk) + METADATA_SIZE)
+#define CHUNK_METADATA(chunk)   (void *)((uint8_t *)(chunk) - METADATA_SIZE)
 #define DEREF_CHUNK_MARK(chunk) (*((uint8_t *)(chunk) + sizeof(void *)))
 
 typedef struct slab {
@@ -23,6 +26,7 @@ typedef struct slab_alloc {
     size_t chunks_per_slab;
     size_t chunk_size;
     size_t chunk_size_total;
+    size_t total_chunk_size_with_metadata;
 } slab_alloc_t;
 
 static slab_t *insert_slab(slab_alloc_t *sa);
@@ -39,6 +43,7 @@ lcu_slab_alloc_t lcu_slab_alloc_create(size_t chunk_size, size_t chunks_per_slab
         sa->chunks_per_slab = chunks_per_slab;
         sa->chunk_size = chunk_size;
         sa->chunk_size_total = chunk_size * chunks_per_slab;
+        sa->total_chunk_size_with_metadata = sa->chunk_size_total + sa->chunks_per_slab * METADATA_SIZE;
         sa->slab = insert_slab(sa);
         if (sa->slab == NULL) {
             lcu_free(sa);
@@ -113,8 +118,7 @@ slab_t *insert_slab(slab_alloc_t *sa)
             sa->slab_tail->next = slab;
         sa->slab_tail = slab;
         slab->next = NULL;
-        size_t total_chunk_size_with_free_list = sa->chunk_size_total + sa->chunks_per_slab * (sizeof(void *) + 1);
-        slab->chunk = lcu_zalloc(total_chunk_size_with_free_list);
+        slab->chunk = lcu_zalloc(sa->total_chunk_size_with_metadata);
         if (slab->chunk == NULL) {
             lcu_free(slab);
             return NULL;
@@ -128,7 +132,7 @@ void insert_free_list(slab_alloc_t *sa, slab_t *slab)
 {
     void *chunk;
     for (size_t i = 0; i < sa->chunks_per_slab; i++) {
-        chunk = (void *)(slab->chunk + (i * sa->chunk_size));
+        chunk = (void *)(slab->chunk + (i * (sa->chunk_size + METADATA_SIZE)));
         push_free_list(sa, CHUNK_DATA(chunk));
     }
 }
@@ -140,11 +144,10 @@ void push_free_list(slab_alloc_t *sa, void *chunk)
     *(void **)chunk = NULL;
     if (sa->free_list == NULL) {
         sa->free_list = chunk;
-        sa->free_list_tail = chunk;
     } else {
         *(void **)sa->free_list_tail = chunk;
-        sa->free_list_tail = chunk;
     }
+    sa->free_list_tail = chunk;
 }
 
 void *pop_free_list(slab_alloc_t *sa)

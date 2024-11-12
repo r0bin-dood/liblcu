@@ -1,9 +1,9 @@
 #include "lcu_fifo.h"
 #include "lcu_list.h"
 
-lcu_fifo_t lcu_fifo_create()
+lcu_fifo_t lcu_fifo_create(size_t max_hint)
 {
-    return lcu_list_create();
+    return lcu_list_create(max_hint);
 }
 
 size_t lcu_fifo_get_size(lcu_fifo_t handle)

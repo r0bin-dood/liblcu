@@ -30,7 +30,7 @@ int lcu_logger_create(const char *out)
     if (out == NULL)
         return -1;
 
-    str_fifo = lcu_fifo_create();
+    str_fifo = lcu_fifo_create(1024);
     if (str_fifo == NULL)
         return -1;
 

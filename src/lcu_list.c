@@ -4,8 +4,6 @@
 #include "lcu_alloc.h"
 #include "lcu_slab_alloc.h"
 
-#define SLAB 1
-
 #define LIST(x) ((list_t *)x)
 
 #define ENUM_CACHE_LEVELS \
@@ -36,7 +34,6 @@ typedef struct list_node {
     lcu_generic_callback cleanup_func;
     struct list_node *prev;
     struct list_node *next;
-
     struct list_node *skip_next[CACHE_LEVELS_MAX]; 
 } list_node_t;
 
@@ -53,27 +50,26 @@ typedef struct list {
     size_t size;
     atomic_flag flag;
     list_fat_node_t cursor;
+    list_node_t *head;
+    list_node_t *tail;
     bool invalid_skip_list;
     list_node_t *skip_list[CACHE_LEVELS_MAX];
     list_node_t *skip_tail[CACHE_LEVELS_MAX];
-    list_node_t *head;
-    list_node_t *tail;
     lcu_slab_alloc_t allocator;
 } list_t;
 
-static list_node_t *new_list_node(list_t *handle, void *value, lcu_generic_callback cleanup_func);
-static list_node_t *get_list_node(list_t *handle, int i);
-static inline void update_cursor(list_t *handle, int index, list_node_t *node);
+static list_node_t *new_list_node(list_t *list, void *value, lcu_generic_callback cleanup_func);
+static list_node_t *get_list_node(list_t *list, int i);
+static inline void update_cursor(list_t *list, int index, list_node_t *node);
 static inline void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next);
-
 static void add_skip_list(list_t *list, list_node_t *node);
 
-lcu_list_t lcu_list_create()
+lcu_list_t lcu_list_create(size_t max_hint)
 {
     list_t *list = lcu_zalloc(sizeof(list_t));
     if (list != NULL) {
         atomic_flag_clear(&list->flag);
-        list->allocator = lcu_slab_alloc_create(sizeof(list_node_t), 4096);
+        list->allocator = lcu_slab_alloc_create(sizeof(list_node_t), max_hint);
         if (list->allocator == NULL) {
             lcu_free(list);
             list = NULL;
@@ -416,11 +412,7 @@ int lcu_list_remove_front(lcu_list_t handle)
 
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
-    #ifdef SLAB
     lcu_slab_free(list->allocator, node);
-    #else
-    lcu_free(node);
-    #endif
 
     return 0;
 }
@@ -452,11 +444,7 @@ int lcu_list_remove_back(lcu_list_t handle)
 
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
-    #ifdef SLAB
     lcu_slab_free(list->allocator, node);
-    #else
-    lcu_free(node);
-    #endif
 
     return 0;
 }
@@ -490,11 +478,7 @@ int lcu_list_remove(lcu_list_t handle, int i)
     
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
-    #ifdef SLAB
     lcu_slab_free(list->allocator, node);
-    #else
-    lcu_free(node);
-    #endif
 
     return 0;
 }
@@ -518,11 +502,7 @@ void lcu_list_destroy(lcu_list_t *handle)
 
 list_node_t *new_list_node(list_t *list, void *value, lcu_generic_callback cleanup_func)
 {
-    #ifdef SLAB
     list_node_t *new_node = lcu_slab_alloc(list->allocator);
-    #else
-    list_node_t *new_node = lcu_alloc(sizeof(list_node_t));
-    #endif
     if (new_node != NULL) {
         new_node->value = value;
         new_node->cleanup_func = cleanup_func;
@@ -530,26 +510,26 @@ list_node_t *new_list_node(list_t *list, void *value, lcu_generic_callback clean
     return new_node;
 }
 
-list_node_t *get_list_node(list_t *handle, int i)
+list_node_t *get_list_node(list_t *list, int i)
 {
     list_node_t *node;
     int current_index;
-    const int list_size = handle->size;
-    const int distance_to_cursor = abs(handle->cursor.index - i);
+    const int list_size = list->size;
+    const int distance_to_cursor = abs(list->cursor.index - i);
     int steps_per_level[CACHE_LEVELS_MAX];
 
     if (i < (list_size >> 1)) {
-        node = handle->head;
+        node = list->head;
         current_index = 0;
     } else if (distance_to_cursor <= (list_size >> 2)) {
-        node = handle->cursor.node;
-        current_index = handle->cursor.index;
+        node = list->cursor.node;
+        current_index = list->cursor.index;
     } else {
-        node = handle->tail;
+        node = list->tail;
         current_index = list_size - 1;
     }
 
-    if (handle->invalid_skip_list != true) {
+    if (list->invalid_skip_list != true) {
         if (abs(current_index - i) >= CACHE_LEVEL_0) {
             current_index = 0;
             list_node_t *skip_node = NULL;
@@ -564,7 +544,7 @@ list_node_t *get_list_node(list_t *handle, int i)
                 if (steps == 0)
                     continue;
                 if (skip_node == NULL) {
-                    skip_node = handle->skip_list[level];
+                    skip_node = list->skip_list[level];
                     steps--;
                 }
                 while (steps--) {
@@ -572,28 +552,32 @@ list_node_t *get_list_node(list_t *handle, int i)
                 }
             }
             node = skip_node;
+            if (current_index <= i)
+                node = node->next;
+            else
+                node = node->prev;
         }
     }
 
     if (current_index < i) {
-        while (current_index <= i) {
+        while (current_index < i) {
             node = node->next;
             current_index++;
         }
-    } else {
-        while (current_index >= i) {
+    } else if (current_index > i) {
+        while (current_index > i) {
             node = node->prev;
             current_index--;
         }
     }
-    update_cursor(handle, i, node);
+    update_cursor(list, i, node);
     return node;
 }
 
-void update_cursor(list_t *handle, int index, list_node_t *node)
+void update_cursor(list_t *list, int index, list_node_t *node)
 {
-    handle->cursor.index = index;
-    handle->cursor.node = node;
+    list->cursor.index = index;
+    list->cursor.node = node;
 }
 
 void update_node_ptrs(list_node_t *node, list_node_t *prev, list_node_t *next)
