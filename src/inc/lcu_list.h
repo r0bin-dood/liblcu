@@ -23,6 +23,7 @@ int lcu_list_swap(lcu_list_t handle, int i, int j);
 int lcu_list_remove_front(lcu_list_t handle);
 int lcu_list_remove_back(lcu_list_t handle);
 int lcu_list_remove(lcu_list_t handle, int i);
+int lcu_list_build_skip_list(lcu_list_t handle);
 void lcu_list_destroy(lcu_list_t *handle);
 
 #endif // LCU_LIST_H

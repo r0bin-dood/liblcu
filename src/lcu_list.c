@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include "lcu_list.h"
 #include "lcu_sync.h"
 #include "lcu_alloc.h"
@@ -137,7 +138,8 @@ int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cl
         }
         list->tail = new_node;
         list->size++;
-        add_skip_list(list, new_node);
+        if (list->invalid_skip_list == false)
+            add_skip_list(list, new_node);
     });
 
     return 0;
@@ -479,6 +481,40 @@ int lcu_list_remove(lcu_list_t handle, int i)
     if (node->cleanup_func != NULL)
         (*node->cleanup_func)(node->value);
     lcu_slab_free(list->allocator, node);
+
+    return 0;
+}
+
+int lcu_list_build_skip_list(lcu_list_t handle)
+{
+    if (handle == NULL)
+        return -1;
+    
+    list_t *list = LIST(handle);
+
+    ATOMIC_SPINLOCK(list->flag, {
+        const size_t list_size = list->size;
+        const size_t skip_list_size = sizeof(list_node_t *) * CACHE_LEVELS_MAX;
+        memset(&list->skip_list[0], 0, skip_list_size);
+        memset(&list->skip_tail[0], 0, skip_list_size);
+        list_node_t *node = list->head;
+        for (size_t i = 1; i < list_size; i++) {
+            memset(&node->skip_next[0], 0, skip_list_size);
+            for (size_t level = 0; level < CACHE_LEVELS_MAX; level++) {
+                if ((i & (cache_intervals[level] - 1)) == 0) {
+                    if (list->skip_list[level] == NULL) {
+                        list->skip_list[level] = node;
+                    } else {
+                        list->skip_tail[level]->skip_next[level] = node;
+                    }
+                    list->skip_tail[level] = node;
+                    node->skip_next[level] = NULL;
+                }
+            }
+            node = node->next;
+        }
+        list->invalid_skip_list = false;
+    });
 
     return 0;
 }
