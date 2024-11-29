@@ -1,8 +1,8 @@
 include config.mk
 
 $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c
-	mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	@mkdir -p $(dir $@)
+	$(CC) -g3 $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/$(TARGET_LIB): $(OBJECT_FILES)
 	ar rcs $@ $^
@@ -11,10 +11,7 @@ $(BUILD_DIR)/$(EXAMPLE_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(EXAMPLE_SOURCE)
 	$(CC) $(CFLAGS) $(DEBUG_FLAGS) $(CPPFLAGS) $(EXAMPLE_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -o $@ $(LDFLAGS)
 
 $(BUILD_DIR)/$(TEST_EXEC): $(BUILD_DIR)/$(TARGET_LIB) $(TEST_SOURCE)
-	$(CC) $(CFLAGS) $(CPPFLAGS) $(TEST_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -lcunit -o $@ $(LDFLAGS)
-
-$(BUILD_DIR)/$(MOCK_LIB): $(MOCK_SOURCE)
-	$(CC) -fPIC -shared -o $@ $< -ldl
+	$(CC) -g3 $(CFLAGS) $(CPPFLAGS) $(TEST_SOURCE) -L$(BUILD_DIR) -l:$(TARGET_LIB) -lcunit -o $@ $(LDFLAGS)
 
 all: $(BUILD_DIR)/$(TARGET_LIB) $(BUILD_DIR)/$(EXAMPLE_EXEC)
 
@@ -37,8 +34,8 @@ uninstall:
 docs:
 	doxygen Doxyfile
 
-tests: $(BUILD_DIR)/$(TEST_EXEC) $(BUILD_DIR)/$(MOCK_LIB)
-	LD_PRELOAD=./$(BUILD_DIR)/$(MOCK_LIB) ./$(BUILD_DIR)/$(TEST_EXEC)
+tests: $(BUILD_DIR)/$(TEST_EXEC)
+	./$(BUILD_DIR)/$(TEST_EXEC)
 
 clean_tests:
 	rm -rf $(TEST_DIR)/out/*

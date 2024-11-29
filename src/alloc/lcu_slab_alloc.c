@@ -4,46 +4,47 @@
 #include "lcu_slab_alloc.h"
 #include <stdio.h>
 
-static const size_t METADATA_SIZE = sizeof(void *) + 1;
+typedef struct chunk {
+    struct chunk *next;
+    uint32_t mark;
+    uint8_t data[];
+} chunk_t;
 
-#define ALLOC_MEMORY_MARK 0xDE
-
-#define CHUNK_DATA(chunk)       (void *)((uint8_t *)(chunk) + METADATA_SIZE)
-#define CHUNK_METADATA(chunk)   (void *)((uint8_t *)(chunk) - METADATA_SIZE)
-#define DEREF_CHUNK_MARK(chunk) (*((uint8_t *)(chunk) + sizeof(void *)))
+#define ALLOC_MEMORY_MARK   (uint32_t)0xFEEEFEEE
+#define TO_CHUNK(addr) (chunk_t *)((uint8_t *)(addr) - sizeof(chunk_t))
 
 typedef struct slab {
-    uint8_t *chunk;
     struct slab *next;
+    chunk_t *chunk;
 } slab_t;
 
 typedef struct slab_alloc {
     atomic_flag flag;
     slab_t *slab;
     slab_t *slab_tail;
-    void *free_list;
-    void *free_list_tail;
+    chunk_t *free_list;
+    chunk_t *free_list_tail;
     size_t chunks_per_slab;
     size_t chunk_size;
     size_t chunk_size_total;
-    size_t total_chunk_size_with_metadata;
+    size_t total_chunks_in_slab;
 } slab_alloc_t;
 
 static slab_t *insert_slab(slab_alloc_t *sa);
 static void insert_free_list(slab_alloc_t *sa, slab_t *slab);
-static void push_free_list(slab_alloc_t *sa, void *chunk);
+static void push_free_list(slab_alloc_t *sa, chunk_t *chunk);
 static void *pop_free_list(slab_alloc_t *sa);
-static bool is_in_free_list(slab_alloc_t *sa, void *addr);
+static bool is_in_free_list(slab_alloc_t *sa, chunk_t *addr);
 
 lcu_slab_alloc_t lcu_slab_alloc_create(size_t chunk_size, size_t chunks_per_slab)
 {
     slab_alloc_t *sa = lcu_zalloc(sizeof(slab_alloc_t));
     if (sa != NULL) {
         atomic_flag_clear(&sa->flag);
-        sa->chunks_per_slab = chunks_per_slab;
         sa->chunk_size = chunk_size;
-        sa->chunk_size_total = chunk_size * chunks_per_slab;
-        sa->total_chunk_size_with_metadata = sa->chunk_size_total + sa->chunks_per_slab * METADATA_SIZE;
+        sa->chunks_per_slab = chunks_per_slab;
+        sa->chunk_size_total = chunk_size + sizeof(chunk_t);
+        sa->total_chunks_in_slab = sa->chunk_size_total * chunks_per_slab;
         sa->slab = insert_slab(sa);
         if (sa->slab == NULL) {
             lcu_free(sa);
@@ -80,9 +81,10 @@ void lcu_slab_free(lcu_slab_alloc_t handle, void *addr)
 
     slab_alloc_t *sa = (slab_alloc_t *)handle;
 
-    if (is_in_free_list(sa, addr) == false) {
+    chunk_t *chunk = TO_CHUNK(addr);
+    if (is_in_free_list(sa, chunk) == false) {
         ATOMIC_SPINLOCK(sa->flag, {
-            push_free_list(sa, addr);
+            push_free_list(sa, chunk);
         });
     }
 }
@@ -105,9 +107,9 @@ void lcu_slab_alloc_destroy(lcu_slab_alloc_t *handle)
         }
         sa->slab = NULL;
         sa->slab_tail = NULL;
-        lcu_free(sa);
-        *handle = NULL;
     });
+    lcu_free(sa);
+    *handle = NULL;
 }
 
 slab_t *insert_slab(slab_alloc_t *sa)
@@ -118,7 +120,7 @@ slab_t *insert_slab(slab_alloc_t *sa)
             sa->slab_tail->next = slab;
         sa->slab_tail = slab;
         slab->next = NULL;
-        slab->chunk = lcu_zalloc(sa->total_chunk_size_with_metadata);
+        slab->chunk = lcu_zalloc(sa->total_chunks_in_slab);
         if (slab->chunk == NULL) {
             lcu_free(slab);
             return NULL;
@@ -130,45 +132,42 @@ slab_t *insert_slab(slab_alloc_t *sa)
 
 void insert_free_list(slab_alloc_t *sa, slab_t *slab)
 {
-    void *chunk;
+    chunk_t *chunk;
     for (size_t i = 0; i < sa->chunks_per_slab; i++) {
-        chunk = (void *)(slab->chunk + (i * (sa->chunk_size + METADATA_SIZE)));
-        push_free_list(sa, CHUNK_DATA(chunk));
+        chunk = (chunk_t *)((uint8_t *)slab->chunk + (i * sa->chunk_size_total));
+        push_free_list(sa, chunk);
     }
 }
 
-void push_free_list(slab_alloc_t *sa, void *chunk)
+void push_free_list(slab_alloc_t *sa, chunk_t *chunk)
 {
-    chunk = CHUNK_METADATA(chunk);
-    DEREF_CHUNK_MARK(chunk) = 0;
-    *(void **)chunk = NULL;
-    if (sa->free_list == NULL) {
+    chunk->mark = 0;
+    chunk->next = NULL;
+    if (sa->free_list == NULL)
         sa->free_list = chunk;
-    } else {
-        *(void **)sa->free_list_tail = chunk;
-    }
+    else
+        sa->free_list_tail->next = chunk;
     sa->free_list_tail = chunk;
 }
 
 void *pop_free_list(slab_alloc_t *sa)
 {
-    void *chunk = NULL;
+    chunk_t *chunk = NULL;
     ATOMIC_SPINLOCK(sa->flag, {
         if (sa->free_list != NULL) {
             chunk = sa->free_list;
-            sa->free_list = *(void **)chunk;
+            sa->free_list = chunk->next;
         }
     });
     if (chunk == NULL)
         return NULL;
-    DEREF_CHUNK_MARK(chunk) = ALLOC_MEMORY_MARK;
-    return CHUNK_DATA(chunk);
+    chunk->mark = ALLOC_MEMORY_MARK;
+    return chunk->data;
 }
 
-bool is_in_free_list(slab_alloc_t *sa, void *addr)
+bool is_in_free_list(slab_alloc_t *sa, chunk_t *chunk)
 {
-    void *chunk = CHUNK_METADATA(addr);
-    if (DEREF_CHUNK_MARK(chunk) == ALLOC_MEMORY_MARK)
+    if (chunk->mark == ALLOC_MEMORY_MARK)
         return false;
     return true;
 }

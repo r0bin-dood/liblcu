@@ -2,8 +2,6 @@
 #include "tests.h"
 #include "lcu_file.h"
 
-extern int force_malloc_failure;
-
 void test_file_open_close()
 {
     char *test_file = "./tests/out/test_file_open_close.txt";

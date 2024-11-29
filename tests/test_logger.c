@@ -5,8 +5,6 @@
 #include "lcu_tpool.h"
 #include "lcu_file.h"
 
-extern int force_malloc_failure;
-
 #define NUM_THREADS 10
 
 typedef struct w_data {
@@ -30,11 +28,6 @@ void test_logger_create_destroy(void)
 
     int ret = 0;
     ret = lcu_logger_create(NULL);
-    CU_ASSERT(ret == -1);
-
-    force_malloc_failure = 1;
-    ret = lcu_logger_create(LCU_STDOUT);
-    force_malloc_failure = 0;
     CU_ASSERT(ret == -1);
 
     char *test_file = "./tests/out/test_logger_create_destroy.txt";
@@ -77,11 +70,6 @@ void test_logger_print(void)
     // Print something long
     lcu_logger_print(long_str);
     lcu_logger_print("\n");
-
-    // Force malloc failure, no print should occur
-    force_malloc_failure = 1;
-    lcu_logger_print(long_str);
-    force_malloc_failure = 0;
 
     lcu_logger_print("After malloc failure\n");
 

@@ -115,17 +115,17 @@ void lcu_tpool_grow(lcu_tpool_t handle, size_t num_threads)
     UNUSED(num_threads);
 }
 
-int lcu_tpool_do_work(lcu_tpool_t handle, lcu_generic_callback func, void *args)
+lcu_err_t lcu_tpool_do_work(lcu_tpool_t handle, lcu_generic_callback func, void *args)
 {
     tpool_t *tpool = (tpool_t *)handle;
     if (tpool == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (func == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (lcu_tpool_get_available_size(tpool) == 0)
-        return -1;
+        return LCU_ERR_OVERFLOW;
 
     lcu_sync_lock(&tpool->worker_fifo_mutex);
     worker_t *worker = (worker_t *) lcu_fifo_peek(tpool->worker_fifo);
@@ -136,7 +136,7 @@ int lcu_tpool_do_work(lcu_tpool_t handle, lcu_generic_callback func, void *args)
     
     lcu_sync_signal(&worker->work_sync);
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
 void lcu_tpool_destroy(lcu_tpool_t *handle)

@@ -86,16 +86,16 @@ size_t lcu_list_get_size(lcu_list_t handle)
     return LIST(handle)->size;
 }
 
-int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func)
+lcu_err_t lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func)
 {
     if (handle == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
 
     list_t *list = LIST(handle);
 
     list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
-        return -1;
+        return LCU_ERR_ALLOC;
 
     ATOMIC_SPINLOCK(list->flag, {
         if (list->size == 0) {
@@ -113,19 +113,19 @@ int lcu_list_insert_front(lcu_list_t handle, void *value, lcu_generic_callback c
         list->invalid_skip_list = true;
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func)
+lcu_err_t lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cleanup_func)
 {
     if (handle == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
 
     list_t *list = LIST(handle);
 
     list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
-        return -1;
+        return LCU_ERR_ALLOC;
 
     ATOMIC_SPINLOCK(list->flag, {
         if (list->size == 0) {
@@ -142,16 +142,16 @@ int lcu_list_insert_back(lcu_list_t handle, void *value, lcu_generic_callback cl
             add_skip_list(list, new_node);
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback cleanup_func)
+lcu_err_t lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback cleanup_func)
 {
     if (handle == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i < 0 || i > LIST(handle)->size)
-        return -1;
+        return LCU_ERR_INVAL;
 
     list_t *list = LIST(handle);
 
@@ -167,7 +167,7 @@ int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback 
 
     list_node_t *new_node = new_list_node(list, value, cleanup_func);
     if (new_node == NULL)
-        return -1;
+        return LCU_ERR_ALLOC;
 
     ATOMIC_SPINLOCK(list->flag, {
         update_node_ptrs(new_node, old_node->prev, old_node);
@@ -180,7 +180,7 @@ int lcu_list_insert(lcu_list_t handle, int i, void *value, lcu_generic_callback 
         list->invalid_skip_list = true;
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
 void *lcu_list_peek_front(lcu_list_t handle)
@@ -222,17 +222,17 @@ void *lcu_list_peek(lcu_list_t handle, int i)
     return node->value;
 }
 
-int lcu_list_move_to_front(lcu_list_t handle, int i)
+lcu_err_t lcu_list_move_to_front(lcu_list_t handle, int i)
 {
     if (LIST(handle) == NULL ||
         LIST(handle)->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i < 0 || i >= LIST(handle)->size)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i == 0)
-        return 0;
+        return LCU_ERR_OK;
 
     list_t *list = LIST(handle);
 
@@ -256,20 +256,20 @@ int lcu_list_move_to_front(lcu_list_t handle, int i)
         list->invalid_skip_list = true;
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_move_to_back(lcu_list_t handle, int i)
+lcu_err_t lcu_list_move_to_back(lcu_list_t handle, int i)
 {
     if (LIST(handle) == NULL ||
         LIST(handle)->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i < 0 || i >= LIST(handle)->size)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i == LIST(handle)->size - 1)
-        return 0;
+        return LCU_ERR_OK;
     
     list_t *list = LIST(handle);
 
@@ -293,23 +293,23 @@ int lcu_list_move_to_back(lcu_list_t handle, int i)
         list->invalid_skip_list = true;
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_move(lcu_list_t handle, int from, int to)
+lcu_err_t lcu_list_move(lcu_list_t handle, int from, int to)
 {
     list_t *list = LIST(handle);
 
     if (list == NULL ||
         list->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if ((from < 0 || from >= list->size) ||
         (to < 0 || to >= list->size))
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (from == to)
-        return 0;
+        return LCU_ERR_OK;
 
     if (to == 0)
         return lcu_list_move_to_front(handle, from);
@@ -359,35 +359,38 @@ int lcu_list_move(lcu_list_t handle, int from, int to)
         list->invalid_skip_list = true;
     });
     
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_swap_with_front(lcu_list_t handle, int i)
+lcu_err_t lcu_list_swap_with_front(lcu_list_t handle, int i)
 {
-    if (lcu_list_move(handle, i, 0) == 0)
+    lcu_err_t ret = lcu_list_move(handle, i, 0);
+    if (lcu_err_ok(ret))
         return lcu_list_move(handle, 1, i + 1);
-    return -1;
+    return ret;
 }
 
-int lcu_list_swap_with_back(lcu_list_t handle, int i)
+lcu_err_t lcu_list_swap_with_back(lcu_list_t handle, int i)
 {
-    if (lcu_list_move(handle, i, LIST(handle)->size - 1) == 0)
+    lcu_err_t ret = lcu_list_move(handle, i, LIST(handle)->size - 1);
+    if (lcu_err_ok(ret))
         return lcu_list_move(handle, (LIST(handle)->size - 2), i + 1);
-    return -1;
+    return ret;
 }
 
-int lcu_list_swap(lcu_list_t handle, int i, int j)
+lcu_err_t lcu_list_swap(lcu_list_t handle, int i, int j)
 {
-    if (lcu_list_move(handle, i, j) == 0)
+    lcu_err_t ret = lcu_list_move(handle, i, j);
+    if (lcu_err_ok(ret))
         return lcu_list_move(handle, j + 1, i + 1);
-    return -1;
+    return ret;
 }
 
-int lcu_list_remove_front(lcu_list_t handle)
+lcu_err_t lcu_list_remove_front(lcu_list_t handle)
 {
     if (handle == NULL || 
         LIST(handle)->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     list_t *list = LIST(handle);
 
@@ -416,14 +419,14 @@ int lcu_list_remove_front(lcu_list_t handle)
         (*node->cleanup_func)(node->value);
     lcu_slab_free(list->allocator, node);
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_remove_back(lcu_list_t handle)
+lcu_err_t lcu_list_remove_back(lcu_list_t handle)
 {    
     if (handle == NULL || 
         LIST(handle)->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     list_t *list = LIST(handle);
 
@@ -448,17 +451,17 @@ int lcu_list_remove_back(lcu_list_t handle)
         (*node->cleanup_func)(node->value);
     lcu_slab_free(list->allocator, node);
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_remove(lcu_list_t handle, int i)
+lcu_err_t lcu_list_remove(lcu_list_t handle, int i)
 {
     if (LIST(handle) == NULL || 
         LIST(handle)->size == 0)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i < 0 || i > LIST(handle)->size)
-        return -1;
+        return LCU_ERR_INVAL;
 
     if (i == 0)
         return lcu_list_remove_front(handle);
@@ -482,13 +485,13 @@ int lcu_list_remove(lcu_list_t handle, int i)
         (*node->cleanup_func)(node->value);
     lcu_slab_free(list->allocator, node);
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
-int lcu_list_build_skip_list(lcu_list_t handle)
+lcu_err_t lcu_list_build_skip_list(lcu_list_t handle)
 {
     if (handle == NULL)
-        return -1;
+        return LCU_ERR_INVAL;
     
     list_t *list = LIST(handle);
 
@@ -516,7 +519,7 @@ int lcu_list_build_skip_list(lcu_list_t handle)
         list->invalid_skip_list = false;
     });
 
-    return 0;
+    return LCU_ERR_OK;
 }
 
 void lcu_list_destroy(lcu_list_t *handle)

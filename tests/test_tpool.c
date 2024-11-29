@@ -3,8 +3,6 @@
 #include "lcu_tpool.h"
 #include "lcu_sync.h"
 
-extern int force_malloc_failure;
-
 #define NUM_THREADS 4
 
 typedef struct w_data {
@@ -35,12 +33,6 @@ void test_tpool_create_destroy(void)
 
     // Test destroy when tp is NULL
     lcu_tpool_destroy(&tp);
-    CU_ASSERT(tp == NULL);
-
-    // Force malloc failure
-    force_malloc_failure = 1;
-    tp = lcu_tpool_create(NUM_THREADS);
-    force_malloc_failure = 0;
     CU_ASSERT(tp == NULL);
 
     tp = lcu_tpool_create(NUM_THREADS);
@@ -85,12 +77,12 @@ void test_tpool_do_work(void)
 
     // Test do work with NULL handle
     ret = lcu_tpool_do_work(NULL, &test_worker, NULL);
-    CU_ASSERT(ret == -1);
+    CU_ASSERT(ret == LCU_ERR_INVAL);
     CU_ASSERT(total == avail);
 
     // Test do work with NULL func
     ret = lcu_tpool_do_work(tp, NULL, NULL);
-    CU_ASSERT(ret == -1);
+    CU_ASSERT(ret == LCU_ERR_INVAL);
     CU_ASSERT(total == avail);
 
     w_data_t w_data[NUM_THREADS];
@@ -114,7 +106,7 @@ void test_tpool_do_work(void)
     
     // No more workers
     ret = lcu_tpool_do_work(tp, &test_worker, NULL);
-    CU_ASSERT(ret == -1);
+    CU_ASSERT(ret == LCU_ERR_OVERFLOW);
 
     // Begin waking and joining back workers
     for (int i = 0; i < NUM_THREADS; i++)

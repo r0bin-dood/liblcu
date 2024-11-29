@@ -3,18 +3,17 @@
 
 #include "lcu.h"
 
-enum lcu_err {
+typedef enum lcu_err {
     LCU_ERR_OK = 0,
-};
-typedef enum lcu_err lcu_err_t;
-
-const char *err_str_arr[] = {
-    "Ok",
-
-};
+    LCU_ERR_ERRNO = -1,
+    LCU_ERR_ERROR = -__INT8_MAX__,
+    LCU_ERR_INVAL,
+    LCU_ERR_ALLOC,
+    LCU_ERR_OVERFLOW,
+} lcu_err_t;
 
 void lcu_err_ok_or_panic(lcu_err_t err);
-bool lcu_err_is_ok(lcu_err_t err);
+bool lcu_err_ok(lcu_err_t err);
 const char *lcu_err_str(lcu_err_t err);
 
 #endif // LCU_ERR_H
